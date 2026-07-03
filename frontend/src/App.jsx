@@ -9,6 +9,11 @@ import SignupPage from './pages/auth/SignupPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import PracticeCenterPage from './pages/PracticeCenterPage';
+import AnswerEvaluatorPage from './pages/AnswerEvaluatorPage';
+import TestTakingPage from './pages/TestTakingPage';
+import ResultPage from './pages/ResultPage';
+import HistoryAnalyticsPage from './pages/HistoryAnalyticsPage';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -48,6 +53,51 @@ function App() {
               element={
                 <ProtectedRoute>
                   <DashboardPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/practice-center" 
+              element={
+                <ProtectedRoute>
+                  <PracticeCenterPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/answer-evaluator" 
+              element={
+                <ProtectedRoute>
+                  <AnswerEvaluatorPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/test/:testId" 
+              element={
+                <ProtectedRoute>
+                  <TestTakingPage />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/result/:attemptId" 
+              element={
+                <ProtectedRoute>
+                  <ResultPage />
+                </ProtectedRoute>
+              } 
+            />
+
+            <Route 
+              path="/history-analytics" 
+              element={
+                <ProtectedRoute>
+                  <HistoryAnalyticsPage />
                 </ProtectedRoute>
               } 
             />

@@ -77,8 +77,16 @@ const DashboardPage = () => {
   ];
 
   const handleNavigationClick = (itemName) => {
-    setActiveTab(itemName);
-    setSidebarOpen(false);
+    if (itemName === 'AI Practice Center') {
+      navigate('/practice-center');
+    } else if (itemName === 'AI Answer Evaluator') {
+      navigate('/answer-evaluator');
+    } else if (itemName === 'History & Analytics') {
+      navigate('/history-analytics');
+    } else {
+      setActiveTab(itemName);
+      setSidebarOpen(false);
+    }
   };
 
   // Custom tooltips for Recharts
