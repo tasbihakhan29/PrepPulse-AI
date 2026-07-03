@@ -43,13 +43,6 @@ Traditional exam preparation methods are time-consuming and lack personalized fe
 - Secure password hashing
 - Protected API routes
 
-### User Experience
-
-- Modern, responsive SaaS-style interface
-- Real-time notifications and toasts
-- Drag-and-drop file uploads
-- Mobile-friendly design
-- Dark/light theme support
 
 ---
 
@@ -173,24 +166,7 @@ PrepPulse-AI/
 
 ---
 
-## Screenshots
 
-### Dashboard
-![Dashboard](docs/images/dashboard.png)
-
-### Practice Center
-![Practice Center](docs/images/practice-center.png)
-
-### Answer Evaluator
-![Answer Evaluator](docs/images/answer-evaluator.png)
-
-### Test Taking Interface
-![Test Taking](docs/images/test-taking.png)
-
-### Results & Analytics
-![Results](docs/images/results.png)
-
----
 
 ## Installation
 
@@ -535,39 +511,6 @@ We welcome contributions! Please follow these guidelines:
 4. **Push to branch**: `git push origin feature/amazing-feature`
 5. **Open a Pull Request**
 
-### Development Guidelines
-
-- Follow existing code style and conventions
-- Write meaningful commit messages
-- Add tests for new features
-- Update documentation as needed
-- Ensure all tests pass before submitting
-
-### Code of Conduct
-
-- Be respectful and inclusive
-- Provide constructive feedback
-- Focus on what is best for the community
-- Show empathy towards other contributors
-
----
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## Author
-
-**[Your Name]**
-
-- **LinkedIn**: [Your LinkedIn Profile]
-- **GitHub**: [Your GitHub Profile]
-- **Portfolio**: [Your Portfolio Website]
-- **Email**: [your.email@example.com]
-
----
 
 ## Acknowledgments
 
