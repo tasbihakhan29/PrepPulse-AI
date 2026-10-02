@@ -13,13 +13,14 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class EvaluationHistoryResponse {
-    
+    private UUID id;
     private UUID submissionId;
     private UUID evaluationId;
     private String question;
     private String topic;
     private Double marksLimit;
     private Double score;
+    private Double marksObtained;
     private Double maxMarks;
     private String evaluationStatus;
     private String fileUrl;

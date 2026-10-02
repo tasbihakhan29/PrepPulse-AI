@@ -1,15 +1,13 @@
 package com.preppulse_ai.backend.controller;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.preppulse_ai.backend.entity.Flashcard;
-import com.preppulse_ai.backend.entity.GeneratedTest;
-import com.preppulse_ai.backend.entity.TestResult;
+import com.preppulse_ai.backend.entity.TestAttempt;
 import com.preppulse_ai.backend.entity.User;
+import com.preppulse_ai.backend.dto.TopicPerformanceResponse;
+import com.preppulse_ai.backend.repository.AnswerEvaluationRepository;
 import com.preppulse_ai.backend.repository.FlashcardRepository;
-import com.preppulse_ai.backend.repository.GeneratedTestRepository;
-import com.preppulse_ai.backend.repository.TestResultRepository;
+import com.preppulse_ai.backend.repository.TestAttemptRepository;
 import com.preppulse_ai.backend.repository.UserRepository;
+import com.preppulse_ai.backend.service.HistoryAnalyticsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -20,8 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
 import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.chrono.ChronoLocalDate;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,10 +29,10 @@ import java.util.stream.Collectors;
 public class DashboardController {
 
     private final UserRepository userRepository;
-    private final TestResultRepository testResultRepository;
+    private final TestAttemptRepository testAttemptRepository;
     private final FlashcardRepository flashcardRepository;
-    private final GeneratedTestRepository generatedTestRepository;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AnswerEvaluationRepository answerEvaluationRepository;
+    private final HistoryAnalyticsService historyAnalyticsService;
 
     private User getAuthenticatedUser(Principal principal) {
         if (principal == null) {
@@ -52,90 +49,65 @@ public class DashboardController {
 
         log.info("Fetching dashboard data for user: {}", user.getEmail());
 
-        // 1. Fetch test results & flashcards
-        List<TestResult> results = testResultRepository.findAllByUserIdOrderByCompletedAtDesc(userId);
+        List<TestAttempt> attempts = testAttemptRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
+            .filter(attempt -> Boolean.TRUE.equals(attempt.getSubmitted()))
+            .collect(Collectors.toList());
         long flashcardsCount = flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId).size();
 
-        // 2. Compute stats
-        int totalTests = results.size();
-        double averageScore = 0.0;
-        if (totalTests > 0) {
-            double sum = results.stream().mapToDouble(TestResult::getScore).sum();
-            averageScore = Math.round((sum / totalTests) * 10.0) / 10.0;
-        }
+        int totalTests = attempts.size();
+        double averageScore = round(attempts.stream()
+            .map(TestAttempt::getPercentage)
+            .filter(Objects::nonNull)
+            .mapToDouble(Double::doubleValue)
+            .average().orElse(0.0));
 
-        int studyStreak = calculateStreak(results);
+        int studyStreak = calculateStreak(attempts);
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalTests", totalTests);
         stats.put("averageScore", averageScore);
         stats.put("studyStreak", studyStreak);
         stats.put("flashcardsGenerated", flashcardsCount);
-        stats.put("aiEvaluations", totalTests); // Count each completed test as an evaluation
+        stats.put("aiEvaluations", answerEvaluationRepository.countByUserId(userId));
 
         // 3. Performance Trend (last 5 tests in chronological order)
         List<Map<String, Object>> performanceTrend = new ArrayList<>();
-        int limit = Math.min(results.size(), 5);
-        List<TestResult> recentResults = results.subList(0, limit);
+        int limit = Math.min(attempts.size(), 5);
+        List<TestAttempt> recentAttempts = attempts.subList(0, limit);
         
         // Reverse to make it chronological (oldest to newest) for chart
-        List<TestResult> chronologicalResults = new ArrayList<>(recentResults);
+        List<TestAttempt> chronologicalResults = new ArrayList<>(recentAttempts);
         Collections.reverse(chronologicalResults);
 
-        for (int i = 0; i < chronologicalResults.size(); i++) {
-            TestResult res = chronologicalResults.get(i);
+        for (TestAttempt attempt : chronologicalResults) {
             Map<String, Object> point = new HashMap<>();
-            point.put("id", res.getId().toString());
-            point.put("name", res.getTest().getExamType());
-            point.put("score", res.getScore().intValue());
-            // Format date to local date string
-            LocalDate localDate = res.getCompletedAt().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
+            point.put("id", attempt.getId().toString());
+            point.put("name", attempt.getTest().getExamType());
+            point.put("score", Math.round(valueOrZero(attempt.getPercentage())));
+            LocalDate localDate = eventDate(attempt);
             point.put("date", localDate.toString());
             performanceTrend.add(point);
         }
 
         // 4. Recent Activity (last 5 tests in reverse chronological order)
         List<Map<String, Object>> recentActivity = new ArrayList<>();
-        for (TestResult res : recentResults) {
+        for (TestAttempt attempt : recentAttempts) {
             Map<String, Object> act = new HashMap<>();
-            act.put("id", res.getId().toString());
-            act.put("name", res.getTest().getExamType());
-            act.put("score", res.getScore().intValue());
-            LocalDate localDate = res.getCompletedAt().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
+            act.put("id", attempt.getId().toString());
+            act.put("name", attempt.getTest().getExamType());
+            act.put("score", Math.round(valueOrZero(attempt.getPercentage())));
+            LocalDate localDate = eventDate(attempt);
             act.put("date", localDate.toString());
             recentActivity.add(act);
         }
 
-        // 5. Learning Insights (Strong Areas vs Needs Improvement)
-        Map<String, Double> topicTotalScores = new HashMap<>();
-        Map<String, Integer> topicCounts = new HashMap<>();
-
-        for (TestResult res : results) {
-            try {
-                String json = res.getTopicScoresJson();
-                if (json != null && !json.trim().isEmpty()) {
-                    Map<String, Double> scores = objectMapper.readValue(json, new TypeReference<Map<String, Double>>() {});
-                    for (Map.Entry<String, Double> entry : scores.entrySet()) {
-                        String topic = entry.getKey().trim();
-                        Double score = entry.getValue();
-                        topicTotalScores.put(topic, topicTotalScores.getOrDefault(topic, 0.0) + score);
-                        topicCounts.put(topic, topicCounts.getOrDefault(topic, 0) + 1);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Failed to parse topic scores JSON for result ID: {}", res.getId(), e);
-            }
-        }
-
         List<String> strongTopics = new ArrayList<>();
         List<String> weakTopics = new ArrayList<>();
-
-        for (String topic : topicTotalScores.keySet()) {
-            double avg = topicTotalScores.get(topic) / topicCounts.get(topic);
-            if (avg >= 70.0) {
-                strongTopics.add(topic);
-            } else {
-                weakTopics.add(topic);
+        for (TopicPerformanceResponse topic : historyAnalyticsService.getTopicPerformance(userId)) {
+            if ("STRONG".equals(topic.getStatus())) {
+                strongTopics.add(topic.getTopic());
+            } else if ("WEAK".equals(topic.getStatus())) {
+                weakTopics.add(topic.getTopic());
             }
         }
 
@@ -153,17 +125,26 @@ public class DashboardController {
         return ResponseEntity.ok(dashboardResponse);
     }
 
-    /**
-     * Calculates consecutive days of study streak from test results.
-     */
-    private int calculateStreak(List<TestResult> results) {
-        if (results.isEmpty()) {
+    private LocalDate eventDate(TestAttempt attempt) {
+        return (attempt.getEndTime() != null ? attempt.getEndTime() : attempt.getStartTime())
+                .withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
+    }
+
+    private double valueOrZero(Double value) {
+        return value == null ? 0.0 : value;
+    }
+
+    private double round(double value) {
+        return Math.round(value * 10.0) / 10.0;
+    }
+
+    private int calculateStreak(List<TestAttempt> attempts) {
+        if (attempts.isEmpty()) {
             return 0;
         }
 
-        // Map to unique local dates, sorted descending
-        Set<LocalDate> dates = results.stream()
-                .map(r -> r.getCompletedAt().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate())
+        Set<LocalDate> dates = attempts.stream()
+                .map(this::eventDate)
                 .collect(Collectors.toCollection(TreeSet::new));
 
         // Convert to list for traversal
@@ -174,7 +155,7 @@ public class DashboardController {
             return 0;
         }
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate yesterday = today.minusDays(1);
         LocalDate latestDate = sortedDates.get(0);
 

@@ -45,43 +45,38 @@ public class HistoryAnalyticsService {
     private final AnswerEvaluationRepository answerEvaluationRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Transactional
+        @Transactional(readOnly = true)
     public AnalyticsOverviewResponse getAnalyticsOverview(UUID userId) {
-        // Calculate from existing tables
-        List<TestAttempt> allAttempts = testAttemptRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
-        long totalTestsTaken = allAttempts.stream().filter(TestAttempt::getSubmitted).count();
-        
-        long totalEvaluations = answerSubmissionRepository.countByUserId(userId);
-        
+        List<TestAttempt> attempts = completedAttempts(userId);
+        long totalTestsTaken = attempts.size();
+        long totalEvaluations = answerEvaluationRepository.countByUserId(userId);
         List<Flashcard> allFlashcards = flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
         long flashcardsGenerated = allFlashcards.size();
 
-        // Calculate average and best score from test_results
-        List<TestResult> testResults = testResultRepository.findAllByUserIdOrderByCompletedAtDesc(userId);
-        Double averageScore = testResults.stream()
-                .mapToDouble(TestResult::getScore)
+        Double averageScore = attempts.stream()
+            .map(TestAttempt::getPercentage)
+            .filter(Objects::nonNull)
+            .mapToDouble(Double::doubleValue)
                 .average()
                 .orElse(0.0);
-        Double bestScore = testResults.stream()
-                .mapToDouble(TestResult::getScore)
+        Double bestScore = attempts.stream()
+            .map(TestAttempt::getPercentage)
+            .filter(Objects::nonNull)
+            .mapToDouble(Double::doubleValue)
                 .max()
                 .orElse(0.0);
 
-        // Calculate study streaks
-        Integer currentStudyStreak = calculateCurrentStudyStreak(userId);
-        Integer longestStudyStreak = calculateLongestStudyStreak(userId);
+        Set<LocalDate> activityDates = getActivityDates(userId);
+        Integer currentStudyStreak = calculateCurrentStudyStreak(activityDates);
+        Integer longestStudyStreak = calculateLongestStudyStreak(activityDates);
 
-        // Calculate hours studied from test_attempts
-        List<TestAttempt> attempts = testAttemptRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
         int totalSeconds = attempts.stream()
-                .filter(TestAttempt::getSubmitted)
                 .mapToInt(a -> a.getTimeTaken() != null ? a.getTimeTaken() : 0)
                 .sum();
         int hoursStudied = totalSeconds / 3600;
 
-        // Total questions attempted
-        int totalQuestionsAttempted = testResults.stream()
-                .mapToInt(TestResult::getTotalQuestions)
+        int totalQuestionsAttempted = attempts.stream()
+            .mapToInt(a -> a.getTest().getTotalQuestions() == null ? 0 : a.getTest().getTotalQuestions())
                 .sum();
 
         return AnalyticsOverviewResponse.builder()
@@ -97,75 +92,95 @@ public class HistoryAnalyticsService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
     public List<PerformanceChartData> getPerformanceChartData(UUID userId, int days) {
-        LocalDate startDate = LocalDate.now().minusDays(days);
-        List<DailyActivity> activities = dailyActivityRepository
-                .findByUserIdAndActivityDateAfterOrderByActivityDateAsc(userId, startDate);
+        LocalDate startDate = LocalDate.now(ZoneOffset.UTC).minusDays(days);
+        Map<LocalDate, List<TestAttempt>> attemptsByDate = completedAttempts(userId).stream()
+                .filter(attempt -> !eventDate(attempt).isBefore(startDate))
+                .collect(Collectors.groupingBy(this::eventDate, TreeMap::new, Collectors.toList()));
 
-        return activities.stream()
-                .map(da -> {
-                    // Calculate average score for this day from test_attempts
-                    double avgScore = getAverageScoreForDate(userId, da.getActivityDate());
-                    double accuracy = getAccuracyForDate(userId, da.getActivityDate());
-
-                    return PerformanceChartData.builder()
-                            .date(da.getActivityDate().toString())
-                            .score(avgScore)
-                            .accuracy(accuracy)
-                            .questionsAttempted(da.getQuestionsAttempted())
-                            .build();
-                })
-                .collect(Collectors.toList());
+        return attemptsByDate.entrySet().stream().map(entry -> {
+            List<TestAttempt> attempts = entry.getValue();
+            return PerformanceChartData.builder()
+                    .date(entry.getKey().toString())
+                    .score(attempts.stream().map(TestAttempt::getPercentage).filter(Objects::nonNull)
+                            .mapToDouble(Double::doubleValue).average().orElse(0.0))
+                    .accuracy(attempts.stream().mapToDouble(this::attemptAccuracy).average().orElse(0.0))
+                    .questionsAttempted(attempts.stream().mapToInt(this::questionCount).sum())
+                    .build();
+        }).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<TopicPerformanceResponse> getTopicPerformance(UUID userId) {
-        List<LearningStatistics> stats = learningStatisticsRepository.findByUserId(userId);
-
-        return stats.stream()
-                .filter(ls -> ls.getTopic() != null && !ls.getTopic().isEmpty())
-                .map(ls -> {
-                    double accuracy = ls.getTotalQuestions() > 0
-                            ? (ls.getCorrectQuestions() * 100.0) / ls.getTotalQuestions()
-                            : 0.0;
-                    String status = accuracy >= 70 ? "STRONG" : accuracy >= 50 ? "AVERAGE" : "WEAK";
-
-                    return TopicPerformanceResponse.builder()
-                            .topic(ls.getTopic())
-                            .averageScore(ls.getAverageScore())
-                            .questionsAttempted(ls.getTotalQuestions())
-                            .accuracy(accuracy)
-                            .status(status)
-                            .build();
-                })
-                .collect(Collectors.toList());
+        Map<String, TopicAggregate> aggregates = new HashMap<>();
+        for (TestAttempt attempt : completedAttempts(userId)) {
+            List<AttemptAnswer> answers = attemptAnswerRepository.findByAttemptId(attempt.getId());
+            if (!answers.isEmpty()) {
+                for (AttemptAnswer answer : answers) {
+                    String topic = answer.getQuestion().getTopic();
+                    topic = topic == null || topic.isBlank() ? "General" : topic;
+                    aggregates.computeIfAbsent(topic, ignored -> new TopicAggregate())
+                            .add(Boolean.TRUE.equals(answer.getIsCorrect()));
+                }
+            } else {
+                addLegacyTopics(aggregates, attempt, userId);
+            }
+        }
+        return aggregates.entrySet().stream().map(entry -> {
+            TopicAggregate aggregate = entry.getValue();
+            double accuracy = aggregate.total == 0 ? 0.0 : aggregate.correct * 100.0 / aggregate.total;
+            return TopicPerformanceResponse.builder().topic(entry.getKey())
+                    .averageScore(accuracy).questionsAttempted(aggregate.total).accuracy(accuracy)
+                    .status(accuracy >= 70 ? "STRONG" : accuracy >= 50 ? "AVERAGE" : "WEAK")
+                    .build();
+        }).sorted(Comparator.comparing(TopicPerformanceResponse::getTopic)).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<HeatmapDataResponse> getHeatmapData(UUID userId, int days) {
-        LocalDate startDate = LocalDate.now().minusDays(days);
-        List<DailyActivity> activities = dailyActivityRepository
-                .findByUserIdAndActivityDateAfterOrderByActivityDateAsc(userId, startDate);
-
-        return activities.stream()
-                .map(da -> {
-                    int activityLevel = calculateActivityLevel(da);
-                    return HeatmapDataResponse.builder()
-                            .date(da.getActivityDate())
-                            .activityLevel(activityLevel)
-                            .testsAttempted(da.getTestsAttempted())
-                            .questionsSolved(da.getQuestionsAttempted())
-                            .evaluationsCompleted(da.getEvaluationsCompleted())
-                            .build();
-                })
-                .collect(Collectors.toList());
+        int requestedDays = Math.max(1, days);
+        LocalDate endDate = LocalDate.now(ZoneOffset.UTC);
+        LocalDate startDate = endDate.minusDays(requestedDays - 1L);
+        Map<LocalDate, ActivityAggregate> activity = new TreeMap<>();
+        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            activity.put(date, new ActivityAggregate());
+        }
+        for (TestAttempt attempt : completedAttempts(userId)) {
+            LocalDate date = eventDate(attempt);
+            if (!date.isBefore(startDate)) {
+                activity.computeIfAbsent(date, ignored -> new ActivityAggregate()).addTest(questionCount(attempt), attempt.getTimeTaken());
+            }
+        }
+        for (AnswerEvaluation evaluation : answerEvaluationRepository.findByUserIdOrderByCreatedAtAsc(userId)) {
+            LocalDate date = evaluation.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
+            if (!date.isBefore(startDate)) activity.computeIfAbsent(date, ignored -> new ActivityAggregate()).evaluations++;
+        }
+        for (Flashcard flashcard : flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId)) {
+            LocalDate date = flashcard.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
+            if (!date.isBefore(startDate)) activity.computeIfAbsent(date, ignored -> new ActivityAggregate()).flashcards++;
+        }
+        return activity.entrySet().stream().map(entry -> {
+            ActivityAggregate value = entry.getValue();
+            int total = value.tests + value.questions + value.evaluations + value.flashcards;
+            int level = total == 0 ? 0 : total <= 5 ? 1 : total <= 10 ? 2 : total <= 20 ? 3 : total <= 40 ? 4 : 5;
+            return HeatmapDataResponse.builder().date(entry.getKey()).activityLevel(level)
+                    .testsAttempted(value.tests).questionsSolved(value.questions)
+                    .evaluationsCompleted(value.evaluations).build();
+        }).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<QuestionTypeDistributionResponse> getQuestionTypeDistribution(UUID userId) {
         List<GeneratedTest> tests = generatedTestRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
         Map<String, Integer> typeCount = new HashMap<>();
 
         for (GeneratedTest test : tests) {
-            String type = test.getQuestionType();
-            typeCount.put(type, typeCount.getOrDefault(type, 0) + test.getTotalQuestions());
+            for (GeneratedQuestion question : generatedQuestionRepository.findAllByTestId(test.getId())) {
+                String type = inferQuestionType(question);
+                if (type == null && !"Mixed".equalsIgnoreCase(test.getQuestionType())) type = test.getQuestionType();
+                if (type != null) typeCount.merge(type, 1, Integer::sum);
+            }
         }
 
         int total = typeCount.values().stream().mapToInt(Integer::intValue).sum();
@@ -179,16 +194,27 @@ public class HistoryAnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<DifficultyAnalysisResponse> getDifficultyAnalysis(UUID userId) {
         List<GeneratedTest> tests = generatedTestRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
         Map<String, List<Double>> difficultyScores = new HashMap<>();
 
         for (GeneratedTest test : tests) {
-            String difficulty = test.getDifficulty();
-            List<TestResult> results = testResultRepository.findByTestId(userId, test.getId());
-            if (!results.isEmpty()) {
-                difficultyScores.computeIfAbsent(difficulty, k -> new ArrayList<>())
-                        .add(results.get(0).getScore());
+            for (TestAttempt attempt : completedAttempts(userId).stream()
+                    .filter(candidate -> candidate.getTest().getId().equals(test.getId())).collect(Collectors.toList())) {
+                List<AttemptAnswer> answers = attemptAnswerRepository.findByAttemptId(attempt.getId());
+                if (!answers.isEmpty()) {
+                    for (AttemptAnswer answer : answers) {
+                        String difficulty = answer.getQuestion().getDifficulty();
+                        if (difficulty != null && !difficulty.isBlank()) {
+                            difficultyScores.computeIfAbsent(difficulty, ignored -> new ArrayList<>())
+                                    .add(Boolean.TRUE.equals(answer.getIsCorrect()) ? 100.0 : 0.0);
+                        }
+                    }
+                } else if (test.getDifficulty() != null && !"Mixed".equalsIgnoreCase(test.getDifficulty())) {
+                    difficultyScores.computeIfAbsent(test.getDifficulty(), ignored -> new ArrayList<>())
+                            .add(valueOrZero(attempt.getPercentage()));
+                }
             }
         }
 
@@ -196,13 +222,11 @@ public class HistoryAnalyticsService {
                 .map(entry -> {
                     List<Double> scores = entry.getValue();
                     double avgScore = scores.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-                    double accuracy = avgScore / 4.0 * 100; // Assuming max 4 marks per question
-
                     return DifficultyAnalysisResponse.builder()
                             .difficulty(entry.getKey())
                             .count(scores.size())
                             .averageScore(avgScore)
-                            .accuracy(accuracy)
+                            .accuracy(avgScore)
                             .build();
                 })
                 .collect(Collectors.toList());
@@ -257,7 +281,10 @@ public class HistoryAnalyticsService {
                     .insight("Your strongest exam pattern is " + dominantType + ".")
                     .type("RECOMMENDATION")
                     .topic(dominantType)
-                    .value(typeDist.get(0).getPercentage())
+                    .value(typeDist.stream()
+                        .filter(type -> dominantType.equals(type.getQuestionType()))
+                        .map(QuestionTypeDistributionResponse::getPercentage)
+                        .findFirst().orElse(0.0))
                     .build());
         }
 
@@ -276,7 +303,7 @@ public class HistoryAnalyticsService {
                     .orElse(0.0);
 
             if (recentAvg > olderAvg) {
-                double improvement = ((recentAvg - olderAvg) / olderAvg) * 100;
+                double improvement = olderAvg == 0.0 ? recentAvg : ((recentAvg - olderAvg) / olderAvg) * 100;
                 insights.add(LearningInsightResponse.builder()
                         .insight("Your accuracy has improved by " + String.format("%.1f", improvement) + "% in the last week.")
                         .type("IMPROVEMENT")
@@ -330,7 +357,7 @@ public class HistoryAnalyticsService {
                     .score(attempt.getScore())
                     .percentage(attempt.getPercentage())
                     .timeTaken(attempt.getTimeTaken())
-                    .date(attempt.getStartTime())
+                    .date(attempt.getEndTime() != null ? attempt.getEndTime() : attempt.getStartTime())
                     .totalQuestions(test.getTotalQuestions())
                     .correctQuestions(calculateCorrectCount(attempt.getId()))
                     .build();
@@ -346,23 +373,24 @@ public class HistoryAnalyticsService {
         String normalizedTopic = (topic == null || topic.isBlank()) ? null : topic;
         String normalizedStatus = (status == null || status.isBlank()) ? null : status;
 
-        Page<AnswerSubmission> submissions = answerSubmissionRepository.findFiltered(
+        Page<AnswerSubmission> submissions = answerSubmissionRepository.findCompletedFiltered(
                 userId,
                 normalizedSearch,
                 normalizedTopic,
-                normalizedStatus,
                 pageable
         );
 
         return submissions.map(submission -> {
             Optional<AnswerEvaluation> evaluationOpt = answerEvaluationRepository.findBySubmissionId(submission.getId());
             return EvaluationHistoryResponse.builder()
+                    .id(submission.getId())
                     .submissionId(submission.getId())
                     .evaluationId(evaluationOpt.map(AnswerEvaluation::getId).orElse(null))
                     .question(submission.getQuestion())
                     .topic(submission.getTopic())
                     .marksLimit(submission.getMarksLimit())
                     .score(evaluationOpt.map(AnswerEvaluation::getScore).orElse(null))
+                    .marksObtained(evaluationOpt.map(AnswerEvaluation::getScore).orElse(null))
                     .maxMarks(evaluationOpt.map(AnswerEvaluation::getMaxMarks).orElse(submission.getMarksLimit()))
                     .evaluationStatus(submission.getEvaluationStatus())
                     .fileUrl(submission.getFileUrl())
@@ -456,56 +484,50 @@ public class HistoryAnalyticsService {
         }
 
         // Calculate activity for the day
-        int testsAttempted = (int) testAttemptRepository.countByUserIdAndSubmittedTrueAndStartTimeBetween(
-                userId,
-                date.atStartOfDay().atOffset(ZoneOffset.UTC),
-                date.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC)
-        );
-
-        activity.setTestsAttempted(testsAttempted);
+        List<TestAttempt> attempts = completedAttempts(userId).stream()
+            .filter(attempt -> !eventDate(attempt).isBefore(date) && !eventDate(attempt).isAfter(date))
+            .collect(Collectors.toList());
+        activity.setTestsAttempted(attempts.size());
+        activity.setQuestionsAttempted(attempts.stream().mapToInt(this::questionCount).sum());
+        activity.setTimeSpent(attempts.stream().mapToInt(attempt -> attempt.getTimeTaken() == null ? 0 : attempt.getTimeTaken()).sum());
+        activity.setEvaluationsCompleted((int) answerEvaluationRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
+            .filter(evaluation -> evaluation.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate().equals(date))
+            .count());
+        activity.setFlashcardsReviewed((int) flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
+            .filter(card -> card.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate().equals(date))
+            .count());
         dailyActivityRepository.save(activity);
     }
 
     // Helper methods
-    private Integer calculateCurrentStudyStreak(UUID userId) {
-        List<DailyActivity> activities = dailyActivityRepository.findByUserIdOrderByActivityDateDesc(userId);
+    private Integer calculateCurrentStudyStreak(Set<LocalDate> dates) {
         int streak = 0;
-        LocalDate currentDate = LocalDate.now();
-
-        for (DailyActivity activity : activities) {
-            if (activity.getActivityDate().equals(currentDate.minusDays(streak)) ||
-                activity.getActivityDate().equals(currentDate)) {
-                if (activity.getTestsAttempted() > 0 || activity.getQuestionsAttempted() > 0) {
-                    streak++;
-                }
-            } else {
-                break;
-            }
+        LocalDate currentDate = LocalDate.now(ZoneOffset.UTC);
+        if (!dates.contains(currentDate) && !dates.contains(currentDate.minusDays(1))) {
+            return 0;
         }
-
+        if (!dates.contains(currentDate)) {
+            currentDate = currentDate.minusDays(1);
+        }
+        while (dates.contains(currentDate.minusDays(streak))) {
+            streak++;
+        }
         return streak;
     }
 
-    private Integer calculateLongestStudyStreak(UUID userId) {
-        List<DailyActivity> activities = dailyActivityRepository.findByUserIdOrderByActivityDateAsc(userId);
+    private Integer calculateLongestStudyStreak(Set<LocalDate> dates) {
         int longestStreak = 0;
         int currentStreak = 0;
         LocalDate previousDate = null;
-
-        for (DailyActivity activity : activities) {
-            if (activity.getTestsAttempted() > 0 || activity.getQuestionsAttempted() > 0) {
-                if (previousDate == null || activity.getActivityDate().equals(previousDate.plusDays(1))) {
-                    currentStreak++;
-                } else {
-                    currentStreak = 1;
-                }
-                longestStreak = Math.max(longestStreak, currentStreak);
-                previousDate = activity.getActivityDate();
+        for (LocalDate date : new TreeSet<>(dates)) {
+            if (previousDate == null || date.equals(previousDate.plusDays(1))) {
+                currentStreak++;
             } else {
-                currentStreak = 0;
+                currentStreak = 1;
             }
+            longestStreak = Math.max(longestStreak, currentStreak);
+            previousDate = date;
         }
-
         return longestStreak;
     }
 
@@ -523,31 +545,113 @@ public class HistoryAnalyticsService {
         return 5;
     }
 
-    private double getAverageScoreForDate(UUID userId, LocalDate date) {
-        OffsetDateTime start = date.atStartOfDay(ZoneOffset.UTC).toOffsetDateTime();
-        OffsetDateTime end = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toOffsetDateTime();
-
-        List<TestResult> results = testResultRepository.findByUserIdAndCompletedAtBetween(userId, start, end);
-        return results.stream()
-                .mapToDouble(TestResult::getScore)
-                .average()
-                .orElse(0.0);
+    private List<TestAttempt> completedAttempts(UUID userId) {
+        return testAttemptRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
+                .filter(attempt -> Boolean.TRUE.equals(attempt.getSubmitted()))
+                .collect(Collectors.toList());
     }
 
-    private double getAccuracyForDate(UUID userId, LocalDate date) {
-        OffsetDateTime start = date.atStartOfDay(ZoneOffset.UTC).toOffsetDateTime();
-        OffsetDateTime end = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toOffsetDateTime();
+    private LocalDate eventDate(TestAttempt attempt) {
+        OffsetDateTime timestamp = attempt.getEndTime() != null ? attempt.getEndTime() : attempt.getStartTime();
+        return timestamp.withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
+    }
 
-        List<TestResult> results = testResultRepository.findByUserIdAndCompletedAtBetween(userId, start, end);
-        return results.stream()
-                .mapToDouble(r -> r.getTotalQuestions() > 0 ? (r.getCorrectQuestions() * 100.0) / r.getTotalQuestions() : 0.0)
-                .average()
-                .orElse(0.0);
+    private int questionCount(TestAttempt attempt) {
+        return attempt.getTest().getTotalQuestions() == null ? 0 : attempt.getTest().getTotalQuestions();
+    }
+
+    private double attemptAccuracy(TestAttempt attempt) {
+        List<AttemptAnswer> answers = attemptAnswerRepository.findByAttemptId(attempt.getId());
+        if (!answers.isEmpty()) {
+            return answers.stream().filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect())).count() * 100.0
+                    / answers.size();
+        }
+        if (attempt.getLegacyResultId() != null) {
+            return testResultRepository.findById(attempt.getLegacyResultId())
+                    .map(result -> result.getTotalQuestions() == 0 ? 0.0
+                            : result.getCorrectQuestions() * 100.0 / result.getTotalQuestions())
+                    .orElse(valueOrZero(attempt.getPercentage()));
+        }
+        return valueOrZero(attempt.getPercentage());
+    }
+
+    private Set<LocalDate> getActivityDates(UUID userId) {
+        Set<LocalDate> dates = new TreeSet<>();
+        completedAttempts(userId).forEach(attempt -> dates.add(eventDate(attempt)));
+        answerEvaluationRepository.findByUserIdOrderByCreatedAtAsc(userId)
+                .forEach(evaluation -> dates.add(evaluation.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()));
+        flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId)
+                .forEach(card -> dates.add(card.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()));
+        return dates;
+    }
+
+    private void addLegacyTopics(Map<String, TopicAggregate> aggregates, TestAttempt attempt, UUID userId) {
+        if (attempt.getLegacyResultId() == null) return;
+        Optional<TestResult> result = testResultRepository.findById(attempt.getLegacyResultId());
+        if (result.isEmpty() || result.get().getTopicScoresJson() == null) return;
+        try {
+            Map<String, Double> topicScores = objectMapper.readValue(result.get().getTopicScoresJson(),
+                    new TypeReference<Map<String, Double>>() {});
+            topicScores.forEach((topic, score) -> {
+                String normalizedTopic = topic == null || topic.isBlank() ? "General" : topic;
+                aggregates.computeIfAbsent(normalizedTopic, ignored -> new TopicAggregate()).addScore(score);
+            });
+        } catch (Exception exception) {
+            log.warn("Could not read legacy topic scores for result {}", result.get().getId(), exception);
+        }
+    }
+
+    private String inferQuestionType(GeneratedQuestion question) {
+        try {
+            List<String> options = objectMapper.readValue(question.getOptionsJson(), new TypeReference<List<String>>() {});
+            if (options.size() <= 1) return "Numerical";
+            return question.getAnswer() != null && question.getAnswer().contains(",") ? "MSQ" : "MCQ";
+        } catch (Exception exception) {
+            return null;
+        }
+    }
+
+    private double valueOrZero(Double value) {
+        return value == null ? 0.0 : value;
+    }
+
+    private static class TopicAggregate {
+        private int total;
+        private int correct;
+
+        private void add(boolean isCorrect) {
+            total++;
+            if (isCorrect) correct++;
+        }
+
+        private void addScore(Double score) {
+            total++;
+            if (score != null && score >= 50.0) correct++;
+        }
+    }
+
+    private static class ActivityAggregate {
+        private int tests;
+        private int questions;
+        private int evaluations;
+        private int flashcards;
+
+        private void addTest(int questionCount, Integer timeTaken) {
+            tests++;
+            questions += questionCount;
+        }
     }
 
     private int calculateCorrectCount(UUID attemptId) {
         List<AttemptAnswer> answers = attemptAnswerRepository.findByAttemptId(attemptId);
-        return (int) answers.stream().filter(a -> Boolean.TRUE.equals(a.getIsCorrect())).count();
+        if (!answers.isEmpty()) {
+            return (int) answers.stream().filter(a -> Boolean.TRUE.equals(a.getIsCorrect())).count();
+        }
+        return testAttemptRepository.findById(attemptId)
+            .flatMap(attempt -> attempt.getLegacyResultId() == null
+                ? Optional.empty() : testResultRepository.findById(attempt.getLegacyResultId()))
+            .map(TestResult::getCorrectQuestions)
+            .orElse(0);
     }
 
     public String exportCsv(UUID userId) {
@@ -739,10 +843,8 @@ public class HistoryAnalyticsService {
         String difficulty = attempt.getTest().getDifficulty();
 
         LearningStatistics stats = learningStatisticsRepository
-                .findByUserIdAndTopic(attempt.getUser().getId(), topic)
-                .filter(existing -> Objects.equals(existing.getExamType(), examType)
-                        && Objects.equals(existing.getQuestionType(), questionType)
-                        && Objects.equals(existing.getDifficulty(), difficulty))
+            .findByUserIdAndTopicAndExamTypeAndQuestionTypeAndDifficulty(
+                attempt.getUser().getId(), topic, examType, questionType, difficulty)
                 .orElseGet(() -> LearningStatistics.builder()
                         .user(attempt.getUser())
                         .topic(topic)
@@ -771,13 +873,16 @@ public class HistoryAnalyticsService {
 
     private void upsertLearningStatisticsFromEvaluation(AnswerSubmission submission) {
         String topic = submission.getTopic() == null ? "General" : submission.getTopic();
-        LearningStatistics stats = learningStatisticsRepository.findByUserIdAndTopic(submission.getUser().getId(), topic)
+        LearningStatistics stats = learningStatisticsRepository
+            .findByUserIdAndTopicAndExamTypeAndQuestionTypeAndDifficulty(
+                submission.getUser().getId(), topic, null, null, null)
                 .orElseGet(() -> LearningStatistics.builder()
                         .user(submission.getUser())
                         .topic(topic)
                         .build());
         stats.setTotalQuestions((stats.getTotalQuestions() == null ? 0 : stats.getTotalQuestions()) + 1);
-        stats.setWrongQuestions(stats.getWrongQuestions() == null ? 0 : stats.getWrongQuestions());
+        stats.setWrongQuestions((stats.getWrongQuestions() == null ? 0 : stats.getWrongQuestions()) + 1);
+        stats.setAveragePercentage(0.0);
         stats.setUpdatedAt(OffsetDateTime.now());
         learningStatisticsRepository.save(stats);
     }

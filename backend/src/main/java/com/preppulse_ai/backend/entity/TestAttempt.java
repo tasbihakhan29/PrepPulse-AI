@@ -56,4 +56,7 @@ public class TestAttempt {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    @Column(name = "legacy_result_id", unique = true)
+    private UUID legacyResultId;
 }

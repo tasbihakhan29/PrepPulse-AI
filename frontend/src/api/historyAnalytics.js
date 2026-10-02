@@ -41,17 +41,29 @@ export const historyAnalyticsApi = {
     return response.data;
   },
 
-  getTestHistory: async ({ page = 0, size = 10, search, examType, questionType, difficulty } = {}) => {
+  getTestHistory: async (options = {}, legacySize, legacySearch, legacyExamType, legacyQuestionType, legacyDifficulty) => {
+    const normalized = typeof options === 'object' && options !== null
+      ? options
+      : { page: options, size: legacySize, search: legacySearch, examType: legacyExamType, questionType: legacyQuestionType, difficulty: legacyDifficulty };
+    const { page = 0, size = 10, search, examType, questionType, difficulty } = normalized;
     const response = await API.get('/api/history/tests', { params: { page, size, search, examType, questionType, difficulty } });
     return response.data;
   },
 
-  getEvaluationHistory: async ({ search = '', topic, status, page = 0, size = 10 } = {}) => {
+  getEvaluationHistory: async (options = {}, legacyPage, legacySize) => {
+    const normalized = typeof options === 'object' && options !== null
+      ? options
+      : { search: options, page: legacyPage, size: legacySize };
+    const { search = '', topic, status, page = 0, size = 10 } = normalized;
     const response = await API.get('/api/history/evaluations', { params: { search, topic, status, page, size } });
     return response.data;
   },
 
-  getFlashcardHistory: async ({ search = '', topic = '', page = 0, size = 10 } = {}) => {
+  getFlashcardHistory: async (options = {}, legacyPage, legacySize) => {
+    const normalized = typeof options === 'object' && options !== null
+      ? options
+      : { search: options, page: legacyPage, size: legacySize };
+    const { search = '', topic = '', page = 0, size = 10 } = normalized;
     const response = await API.get('/api/history/flashcards', { params: { search, topic, page, size } });
     return response.data;
   },

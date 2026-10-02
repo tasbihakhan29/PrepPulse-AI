@@ -16,6 +16,9 @@ public interface LearningStatisticsRepository extends JpaRepository<LearningStat
     List<LearningStatistics> findByUserId(UUID userId);
     
     Optional<LearningStatistics> findByUserIdAndTopic(UUID userId, String topic);
+
+        Optional<LearningStatistics> findByUserIdAndTopicAndExamTypeAndQuestionTypeAndDifficulty(
+            UUID userId, String topic, String examType, String questionType, String difficulty);
     
     @Query("SELECT ls FROM LearningStatistics ls WHERE ls.user.id = :userId ORDER BY ls.averagePercentage DESC")
     List<LearningStatistics> findByUserIdOrderByAveragePercentageDesc(@Param("userId") UUID userId);

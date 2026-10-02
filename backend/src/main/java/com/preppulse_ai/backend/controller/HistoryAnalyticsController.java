@@ -104,7 +104,7 @@ public class HistoryAnalyticsController {
             Principal principal
     ) {
         User user = authenticatedUserResolver.resolve(principal);
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "date"));
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "endTime"));
         Page<TestHistoryResponse> response = historyAnalyticsService.getTestHistory(
                 user.getId(), search, examType, questionType, difficulty, pageable
         );

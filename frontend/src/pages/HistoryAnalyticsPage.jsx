@@ -67,6 +67,7 @@ const HistoryAnalyticsPage = () => {
 
   // History data
   const [testHistory, setTestHistory] = useState({ content: [], totalElements: 0 });
+  const [testHistoryError, setTestHistoryError] = useState(null);
   const [evaluationHistory, setEvaluationHistory] = useState({ content: [], totalElements: 0 });
   const [flashcardHistory, setFlashcardHistory] = useState({ content: [], totalElements: 0 });
 
@@ -84,6 +85,8 @@ const HistoryAnalyticsPage = () => {
   }, [user]);
 
   const loadAnalyticsData = async () => {
+    const historyPromise = loadHistoryData();
+
     try {
       setLoading(true);
       const [
@@ -114,29 +117,38 @@ const HistoryAnalyticsPage = () => {
       setDifficultyAnalysis(diffAnalysis);
       setInsights(insightsData);
       setRecommendations(recs);
-
-      await loadHistoryData();
-      setLoading(false);
     } catch (err) {
       console.error('Error loading analytics:', err);
       toast.error('Failed to load analytics data');
+    } finally {
+      await historyPromise;
       setLoading(false);
     }
   };
 
   const loadHistoryData = async () => {
+    setTestHistoryError(null);
+
     try {
-      const [tests, evals, flashcards] = await Promise.all([
-        historyAnalyticsApi.getTestHistory(0, 10),
+      const tests = await historyAnalyticsApi.getTestHistory(0, 10);
+      setTestHistory(tests);
+    } catch (err) {
+      console.error('Error loading Test History from /api/history/tests:', err);
+      setTestHistoryError(
+        err.response?.data?.message || err.message || 'Unable to load Test History.'
+      );
+    }
+
+    try {
+      const [evals, flashcards] = await Promise.all([
         historyAnalyticsApi.getEvaluationHistory('', 0, 10),
         historyAnalyticsApi.getFlashcardHistory('', 0, 10),
       ]);
 
-      setTestHistory(tests);
       setEvaluationHistory(evals);
       setFlashcardHistory(flashcards);
     } catch (err) {
-      console.error('Error loading history:', err);
+      console.error('Error loading evaluation or flashcard history:', err);
     }
   };
 
@@ -603,6 +615,9 @@ const HistoryAnalyticsPage = () => {
               <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="text-base font-extrabold text-gray-900">Test History</h3>
+                  {testHistoryError && (
+                    <p className="mt-2 text-sm text-red-600">{testHistoryError}</p>
+                  )}
                 </div>
                 <div className="divide-y divide-gray-100">
                   {testHistory.content.map((test, index) => (

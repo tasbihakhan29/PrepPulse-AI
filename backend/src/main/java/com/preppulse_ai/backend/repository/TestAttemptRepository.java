@@ -33,10 +33,10 @@ public interface TestAttemptRepository extends JpaRepository<TestAttempt, UUID> 
     long countByUserIdAndSubmittedTrueAndStartTimeBetween(@Param("userId") UUID userId, @Param("start") OffsetDateTime start, @Param("end") OffsetDateTime end);
 
     @Query("SELECT a FROM TestAttempt a JOIN a.test t WHERE a.user.id = :userId AND a.submitted = true " +
-           "AND (:search IS NULL OR LOWER(t.examType) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(t.questionType) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(t.difficulty) LIKE LOWER(CONCAT('%', :search, '%'))) " +
-           "AND (:examType IS NULL OR t.examType = :examType) " +
-           "AND (:questionType IS NULL OR t.questionType = :questionType) " +
-           "AND (:difficulty IS NULL OR t.difficulty = :difficulty)")
+           "AND (LOWER(t.examType) LIKE LOWER(CONCAT('%', COALESCE(:search, ''), '%')) OR LOWER(t.questionType) LIKE LOWER(CONCAT('%', COALESCE(:search, ''), '%')) OR LOWER(t.difficulty) LIKE LOWER(CONCAT('%', COALESCE(:search, ''), '%'))) " +
+           "AND t.examType = COALESCE(:examType, t.examType) " +
+           "AND t.questionType = COALESCE(:questionType, t.questionType) " +
+           "AND t.difficulty = COALESCE(:difficulty, t.difficulty)")
     Page<TestAttempt> findFiltered(@Param("userId") UUID userId, 
                                   @Param("search") String search, 
                                   @Param("examType") String examType, 

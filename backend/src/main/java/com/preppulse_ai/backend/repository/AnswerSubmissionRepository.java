@@ -42,4 +42,13 @@ public interface AnswerSubmissionRepository extends JpaRepository<AnswerSubmissi
                                         @Param("topic") String topic, 
                                         @Param("status") String status, 
                                         Pageable pageable);
+
+    @Query("SELECT s FROM AnswerSubmission s WHERE s.user.id = :userId " +
+            "AND EXISTS (SELECT ae.id FROM AnswerEvaluation ae WHERE ae.submission.id = s.id) " +
+            "AND (LOWER(s.question) LIKE LOWER(CONCAT('%', COALESCE(:search, ''), '%')) OR LOWER(s.topic) LIKE LOWER(CONCAT('%', COALESCE(:search, ''), '%'))) " +
+            "AND (COALESCE(:topic, '') = '' OR LOWER(s.topic) = LOWER(:topic))")
+    Page<AnswerSubmission> findCompletedFiltered(@Param("userId") UUID userId,
+                                                        @Param("search") String search,
+                                                        @Param("topic") String topic,
+                                                        Pageable pageable);
 }
