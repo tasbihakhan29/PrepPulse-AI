@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.UUID;
+import java.util.List;
 
 @Data
 @Builder
@@ -17,4 +18,5 @@ public class UploadResponse {
     private String fileUrl;
     private Integer academicConfidenceScore;
     private String extractedText;
+    private List<String> topics;
 }

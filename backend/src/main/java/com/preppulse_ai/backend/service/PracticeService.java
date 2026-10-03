@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -137,6 +138,7 @@ public class PracticeService {
                 .fileUrl(material.getFileUrl())
                 .academicConfidenceScore(score)
                 .extractedText(material.getExtractedText())
+            .topics(detectTopics(extractedText))
                 .build();
     }
 
@@ -160,9 +162,7 @@ public class PracticeService {
 
                 String contentHash = material.getContentHash();
                 String examType = request.getExamType();
-                if ("Custom".equalsIgnoreCase(examType)) {
-                    examType = request.getCustomExamName();
-                }
+                validateExamContext(material.getExtractedText(), examType);
 
                 // AI Cost Optimization: Check database cache
                 List<GeneratedTest> similarTests = generatedTestRepository.findSimilarTests(
@@ -269,6 +269,7 @@ public class PracticeService {
                     .question(q.getQuestion())
                     .optionsJson(q.getOptionsJson())
                     .answer(q.getAnswer())
+                    .questionType(q.getQuestionType())
                     .explanation(q.getExplanation())
                     .topic(q.getTopic())
                     .difficulty(q.getDifficulty())
@@ -292,9 +293,6 @@ public class PracticeService {
         }
 
         String examType = request.getExamType();
-        if ("Custom".equalsIgnoreCase(examType)) {
-            examType = request.getCustomExamName();
-        }
 
         GeneratedTest test = GeneratedTest.builder()
                 .user(user)
@@ -310,13 +308,17 @@ public class PracticeService {
 
         generatedTestRepository.save(test);
 
-        for (Map<String, Object> qMap : questionsList) {
+        validateGeneratedQuestions(questionsList, request);
+
+        for (int questionIndex = 0; questionIndex < questionsList.size(); questionIndex++) {
+            Map<String, Object> qMap = questionsList.get(questionIndex);
             String questionText = (String) qMap.get("question");
             List<String> options = (List<String>) qMap.get("options");
             String correctAnswer = String.valueOf(qMap.get("correctAnswer"));
             String explanation = (String) qMap.get("explanation");
             String topic = (String) qMap.get("topic");
             String difficulty = (String) qMap.get("difficulty");
+            String generatedQuestionType = resolveQuestionType(qMap, request.getQuestionType(), questionIndex);
 
             if (difficulty == null) {
                 difficulty = request.getDifficulty();
@@ -330,6 +332,7 @@ public class PracticeService {
                     .explanation(explanation)
                     .topic(topic)
                     .difficulty(difficulty)
+                    .questionType(generatedQuestionType)
                     .build();
 
             generatedQuestionRepository.save(question);
@@ -404,6 +407,155 @@ public class PracticeService {
         return defaults;
     }
 
+    private List<String> detectTopics(String text) {
+        Map<String, Integer> topicScores = new LinkedHashMap<>();
+        Set<String> stopWords = Set.of("about", "after", "again", "against", "being", "between", "could", "from", "have", "into", "more", "other", "over", "should", "their", "there", "these", "those", "through", "under", "using", "which", "while", "where", "what", "when", "with", "would");
+
+        java.util.regex.Matcher acronymMatcher = java.util.regex.Pattern.compile("\\b[A-Z][A-Z0-9-]{1,7}\\b").matcher(text);
+        while (acronymMatcher.find()) {
+            topicScores.merge(acronymMatcher.group(), 3, Integer::sum);
+        }
+
+        java.util.regex.Matcher phraseMatcher = java.util.regex.Pattern.compile("\\b(?:[A-Z][a-z]+)(?:\\s+[A-Z][a-z]+){1,2}\\b").matcher(text);
+        while (phraseMatcher.find()) {
+            String phrase = phraseMatcher.group().trim();
+            if (!phrase.contains("The ") && !phrase.contains("What ")) {
+                topicScores.merge(phrase, 2, Integer::sum);
+            }
+        }
+
+        java.util.regex.Matcher wordMatcher = java.util.regex.Pattern.compile("\\b[A-Za-z][A-Za-z-]{4,}\\b").matcher(text.toLowerCase(Locale.ROOT));
+        while (wordMatcher.find()) {
+            String word = wordMatcher.group();
+            if (!stopWords.contains(word)) {
+                topicScores.merge(word, 1, Integer::sum);
+            }
+        }
+
+        return topicScores.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(12)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+    }
+
+    private void validateExamContext(String materialText, String examType) {
+        if (examType == null || !Set.of("GATE", "UPSC", "University Exam", "SSC", "Banking").contains(examType)) {
+            throw new IllegalArgumentException("Please select one of the supported exam contexts.");
+        }
+        if ("University Exam".equals(examType)) {
+            return;
+        }
+
+        String normalized = materialText.toLowerCase(Locale.ROOT);
+        Map<String, List<String>> signals = Map.of(
+                "GATE", List.of("algorithm", "computer", "engineering", "circuit", "operating system", "database", "network", "calculus", "probability", "programming"),
+                "UPSC", List.of("constitution", "polity", "governance", "geography", "history", "economy", "international relations", "current affairs", "environment"),
+                "SSC", List.of("reasoning", "aptitude", "grammar", "comprehension", "general awareness", "quantitative", "coding-decoding"),
+                "Banking", List.of("banking", "finance", "interest", "profit", "loss", "reasoning", "quantitative", "economics", "reserve bank")
+        );
+
+        int selectedMatches = signals.get(examType).stream().mapToInt(signal -> normalized.contains(signal) ? 1 : 0).sum();
+        int otherMatches = signals.entrySet().stream()
+                .filter(entry -> !entry.getKey().equals(examType))
+                .mapToInt(entry -> entry.getValue().stream().mapToInt(signal -> normalized.contains(signal) ? 1 : 0).sum())
+                .max()
+                .orElse(0);
+
+        if (selectedMatches == 0 && (otherMatches >= 2 || detectTopics(materialText).isEmpty())) {
+            throw new IllegalArgumentException("The study material does not appear relevant to the selected " + examType + " exam context.");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void validateGeneratedQuestions(List<Map<String, Object>> questions, TestGenerationRequest request) {
+        Set<String> types = new HashSet<>();
+        int relevantQuestions = 0;
+        for (int index = 0; index < questions.size(); index++) {
+            Map<String, Object> question = questions.get(index);
+            String type = resolveQuestionType(question, request.getQuestionType(), index);
+            question.put("questionType", type);
+            List<String> options = question.get("options") instanceof List<?> rawOptions
+                    ? rawOptions.stream().map(String::valueOf).collect(Collectors.toList())
+                    : new ArrayList<>();
+            String correctedAnswer = normalizeCorrectAnswer(
+                    String.valueOf(question.get("question")), options, String.valueOf(question.get("correctAnswer"))
+            );
+            question.put("correctAnswer", correctedAnswer);
+            types.add(type);
+
+            if (request.getTopicFocus() != null && !request.getTopicFocus().isBlank()
+                    && textContainsTopic(question, request.getTopicFocus())) {
+                relevantQuestions++;
+            }
+        }
+
+        if ("Mixed".equalsIgnoreCase(request.getQuestionType())
+                && (questions.size() < 3 || !types.containsAll(Set.of("MCQ", "MSQ", "Numerical")))) {
+            throw new IllegalArgumentException("Mixed question format could not produce MCQ, MSQ, and Numerical questions. Please try again.");
+        }
+        if (request.getTopicFocus() != null && !request.getTopicFocus().isBlank()
+                && relevantQuestions < Math.max(1, (questions.size() + 1) / 2)) {
+            throw new IllegalArgumentException("The generated questions did not sufficiently match the selected topic focus. Please try again.");
+        }
+    }
+
+    private String resolveQuestionType(Map<String, Object> question, String requestedType, int index) {
+        String generatedType = question.get("questionType") == null ? "" : String.valueOf(question.get("questionType"));
+        if (Set.of("MCQ", "MSQ", "Numerical").contains(generatedType)) {
+            return generatedType;
+        }
+        if ("Mixed".equalsIgnoreCase(requestedType)) {
+            Object optionsValue = question.get("options");
+            int optionCount = optionsValue instanceof List<?> options ? options.size() : 0;
+            if (optionCount <= 1) return "Numerical";
+            String answer = String.valueOf(question.get("correctAnswer"));
+            return answer.contains(",") ? "MSQ" : (index % 3 == 1 ? "MSQ" : "MCQ");
+        }
+        return requestedType;
+    }
+
+    private boolean textContainsTopic(Map<String, Object> question, String topicFocus) {
+        Set<String> focusTokens = Arrays.stream(topicFocus.toLowerCase(Locale.ROOT).split("\\W+"))
+                .filter(token -> token.length() > 2)
+                .collect(Collectors.toSet());
+        String questionText = (String.valueOf(question.get("question")) + " " + String.valueOf(question.get("topic"))).toLowerCase(Locale.ROOT);
+        return focusTokens.stream().anyMatch(questionText::contains);
+    }
+
+    private String normalizeCorrectAnswer(String question, List<String> options, String correctAnswer) {
+        Double expected = deriveExpectedNumericAnswer(question);
+        if (expected == null) return correctAnswer;
+        for (String option : options) {
+            Double optionValue = parseNumeric(option);
+            if (optionValue != null && Math.abs(optionValue - expected) < 0.0001) {
+                return option;
+            }
+        }
+        return correctAnswer;
+    }
+
+    private Double deriveExpectedNumericAnswer(String question) {
+        String normalized = question.toLowerCase(Locale.ROOT);
+        java.util.regex.Matcher hitsMisses = java.util.regex.Pattern
+                .compile("(\\d+(?:\\.\\d+)?)\\s+hits?\\s+and\\s+(\\d+(?:\\.\\d+)?)\\s+misses?")
+                .matcher(normalized);
+        if (hitsMisses.find() && (normalized.contains("ratio") || normalized.contains("percentage") || normalized.contains("percent"))) {
+            double hits = Double.parseDouble(hitsMisses.group(1));
+            double misses = Double.parseDouble(hitsMisses.group(2));
+            return hits * 100.0 / (hits + misses);
+        }
+        return null;
+    }
+
+    private Double parseNumeric(String value) {
+        try {
+            return Double.parseDouble(value.replace("%", "").trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
     private String inferQuestionType(GeneratedQuestion question) {
         List<String> options = new ArrayList<>();
         try {
@@ -414,6 +566,10 @@ public class PracticeService {
 
         if (options.size() <= 1) {
             return "Numerical";
+        }
+
+        if (question.getQuestionType() != null && !question.getQuestionType().isBlank()) {
+            return question.getQuestionType();
         }
 
         String answer = question.getAnswer() == null ? "" : question.getAnswer().trim();
@@ -535,16 +691,18 @@ public class PracticeService {
                 "Each question object must strictly have the following fields:\n" +
                 "1. \"question\" (String): the text of the question\n" +
                 "2. \"options\" (Array of Strings): a list of 4 options for MCQs/MSQs. For numerical questions, provide 1 default empty option or list.\n" +
-                "3. \"correctAnswer\" (String): the exact correct option or value\n" +
-                "4. \"explanation\" (String): detailed explanation of the solution\n" +
-                "5. \"topic\" (String): the category/topic of the question\n" +
-                "6. \"difficulty\" (String): the difficulty (Easy, Medium, Hard)\n\n" +
+                "3. \"questionType\" (String): exactly MCQ, MSQ, or Numerical\n" +
+                "4. \"correctAnswer\" (String): the exact correct option or value\n" +
+                "5. \"explanation\" (String): detailed explanation of the solution\n" +
+                "6. \"topic\" (String): the category/topic of the question\n" +
+                "7. \"difficulty\" (String): the difficulty (Easy, Medium, Hard)\n\n" +
                 "Example format:\n" +
                 "{\n" +
                 "  \"questions\": [\n" +
                 "    {\n" +
                 "      \"question\": \"What is 2+2?\",\n" +
                 "      \"options\": [\"3\", \"4\", \"5\", \"6\"],\n" +
+                "      \"questionType\": \"MCQ\",\n" +
                 "      \"correctAnswer\": \"4\",\n" +
                 "      \"explanation\": \"Because 2 added to 2 equals 4.\",\n" +
                 "      \"topic\": \"Arithmetic\",\n" +
@@ -557,15 +715,22 @@ public class PracticeService {
     private String buildUserPrompt(String materialText, String examType, TestGenerationRequest request, UUID userId) {
         String adaptiveInstructions = adaptiveLearningService.buildAdaptiveInstructions(userId);
 
-        return "Source Material:\n" + materialText + "\n\n" +
+        String topicInstruction = request.getTopicFocus() != null && !request.getTopicFocus().trim().isEmpty()
+            ? "- Topic focus: " + request.getTopicFocus() + ". At least half of the questions must directly address this topic.\n"
+            : "- Topic focus: none. Use the full source material while staying within the selected exam context.\n";
+        String questionTypeInstruction = "Mixed".equalsIgnoreCase(request.getQuestionType())
+            ? "- Mixed format requirement: include multiple MCQ, MSQ, and Numerical questions in the requested set.\n"
+            : "- Every question must use the requested format: " + request.getQuestionType() + ".\n";
+
+        return "Source Material (primary and authoritative source):\n" + materialText + "\n\n" +
                 "Generation Configurations:\n" +
-                "- Target Exam Type: " + examType + "\n" +
+            "- Target Exam Type: " + examType + ". Every question must follow this exam's conventions and subject scope.\n" +
                 "- Question Format: " + request.getQuestionType() + "\n" +
                 "- Difficuly Level: " + request.getDifficulty() + "\n" +
                 "- Exact Question Count to Generate: " + request.getQuestionCount() + "\n" +
                 "- Evaluation marking scheme context: " + request.getMarkingScheme() + "\n" +
-                (request.getTopicFocus() != null && !request.getTopicFocus().trim().isEmpty()
-                        ? "- Topic focus: " + request.getTopicFocus() + "\n" : "") +
+            topicInstruction +
+            questionTypeInstruction +
                 adaptiveInstructions;
     }
 }

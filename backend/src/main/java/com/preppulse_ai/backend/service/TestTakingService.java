@@ -510,6 +510,10 @@ public class TestTakingService {
     }
 
     private String inferQuestionType(GeneratedQuestion question) {
+        if (question.getQuestionType() != null && !question.getQuestionType().isBlank()) {
+            return question.getQuestionType();
+        }
+
         List<String> options = parseOptions(question.getOptionsJson());
         if (options.size() <= 1) {
             return "Numerical";

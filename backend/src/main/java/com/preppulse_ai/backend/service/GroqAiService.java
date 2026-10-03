@@ -173,6 +173,7 @@ public class GroqAiService {
                 "  \"questions\": [\n" +
                 "    {\n" +
                 "      \"question\": \"Under which conditions does the Dijkstra's Shortest Path algorithm fail to yield a correct topological representation?\",\n" +
+                "      \"questionType\": \"MCQ\",\n" +
                 "      \"options\": [\n" +
                 "        \"When the source vertex has self-loops\",\n" +
                 "        \"When there are negative edge weights along reachable pathways\",\n" +
@@ -185,28 +186,27 @@ public class GroqAiService {
                 "      \"difficulty\": \"Medium\"\n" +
                 "    },\n" +
                 "    {\n" +
-                "      \"question\": \"In Relational Database design, which normal form guarantees the complete elimination of transitive functional dependencies?\",\n" +
+                "      \"question\": \"Which normal forms eliminate transitive functional dependencies in relational database design?\",\n" +
+                "      \"questionType\": \"MSQ\",\n" +
                 "      \"options\": [\n" +
-                "        \"First Normal Form (1NF)\",\n" +
-                "        \"Second Normal Form (2NF)\",\n" +
                 "        \"Third Normal Form (3NF)\",\n" +
-                "        \"Boyce-Codd Normal Form (BCNF)\"\n" +
+                "        \"Boyce-Codd Normal Form (BCNF)\",\n" +
+                "        \"Fourth Normal Form (4NF)\",\n" +
+                "        \"Domain-Key Normal Form (DKNF)\"\n" +
                 "      ],\n" +
-                "      \"correctAnswer\": \"Third Normal Form (3NF)\",\n" +
-                "      \"explanation\": \"Third Normal Form (3NF) states that no non-prime attribute should be transitively dependent on the primary key, thereby eliminating transitive functional dependencies.\",\n" +
+                "      \"correctAnswer\": \"Third Normal Form (3NF),Boyce-Codd Normal Form (BCNF)\",\n" +
+                "      \"explanation\": \"Third Normal Form and Boyce-Codd Normal Form eliminate transitive dependencies through progressively stronger dependency rules.\",\n" +
                 "      \"topic\": \"Database Management Systems\",\n" +
                 "      \"difficulty\": \"Easy\"\n" +
                 "    },\n" +
                 "    {\n" +
-                "      \"question\": \"What is the primary function of a Translation Lookaside Buffer (TLB) in virtual memory architectures?\",\n" +
+                "      \"question\": \"A TLB lookup takes 2 nanoseconds. What is the lookup time in nanoseconds?\",\n" +
+                "      \"questionType\": \"Numerical\",\n" +
                 "      \"options\": [\n" +
-                "        \"To cache virtual memory page table entries for faster virtual-to-physical address mapping\",\n" +
-                "        \"To store disk block reference data in cache levels\",\n" +
-                "        \"To load kernel threads in secondary caches\",\n" +
-                "        \"To manage dirty bits prior to page swaps\"\n" +
+                "        \"\"\n" +
                 "      ],\n" +
-                "      \"correctAnswer\": \"To cache virtual memory page table entries for faster virtual-to-physical address mapping\",\n" +
-                "      \"explanation\": \"A TLB is a dedicated high-speed cache memory used to store recent virtual-to-physical translation mappings, bypasses secondary memory page table walks.\",\n" +
+                "      \"correctAnswer\": \"2\",\n" +
+                "      \"explanation\": \"The stated lookup time is 2 nanoseconds.\",\n" +
                 "      \"topic\": \"Operating Systems\",\n" +
                 "      \"difficulty\": \"Hard\"\n" +
                 "    }\n" +

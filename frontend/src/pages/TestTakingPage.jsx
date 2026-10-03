@@ -220,8 +220,8 @@ const TestTakingPage = () => {
     setShowSubmitDialog(false);
 
     try {
-      await testTakingApi.submitTest(testData.attemptId, tabSwitchCount);
-      navigate(`/result/${testData.attemptId}`);
+      const result = await testTakingApi.submitTest(testData.attemptId, tabSwitchCount);
+      navigate(`/result/${result.attemptId || testData.attemptId}`);
     } catch (err) {
       console.error('Error submitting test:', err);
       toast.error('Failed to submit test. Please try again.');

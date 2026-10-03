@@ -33,6 +33,9 @@ public class GeneratedQuestion {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String answer;
 
+    @Column(name = "question_type")
+    private String questionType;
+
     @Column(columnDefinition = "TEXT")
     private String explanation;
 

@@ -14,7 +14,6 @@ import java.util.UUID;
 public class TestGenerationRequest {
     private UUID sourceMaterialId;
     private String examType;
-    private String customExamName;
     private String questionType;
     private String difficulty;
     private Integer questionCount;

@@ -552,6 +552,10 @@ public class HistoryAnalyticsService {
 
     private String inferQuestionType(GeneratedQuestion question) {
         try {
+            if (question.getQuestionType() != null && !question.getQuestionType().isBlank()) {
+                return question.getQuestionType();
+            }
+
             List<String> options = objectMapper.readValue(question.getOptionsJson(), new TypeReference<List<String>>() {});
             if (options.size() <= 1) return "Numerical";
             return question.getAnswer() != null && question.getAnswer().contains(",") ? "MSQ" : "MCQ";

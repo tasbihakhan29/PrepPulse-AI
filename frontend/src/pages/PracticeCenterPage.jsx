@@ -52,7 +52,7 @@ const PracticeCenterPage = () => {
   
   // Step 2 State: Exam Context
   const [examType, setExamType] = useState('GATE');
-  const [customExamName, setCustomExamName] = useState('');
+  const [availableTopics, setAvailableTopics] = useState([]);
   
   // Step 3 State: Test Configuration
   const [questionType, setQuestionType] = useState('Mixed');
@@ -207,6 +207,8 @@ const PracticeCenterPage = () => {
       }
 
       setMaterialId(data.id);
+      setAvailableTopics(data.topics || []);
+      setTopicFocus('');
       toast.success(`Academic check passed (Confidence Score: ${data.academicConfidenceScore}%)`);
       setStep(2);
     } catch (err) {
@@ -234,7 +236,6 @@ const PracticeCenterPage = () => {
         body: JSON.stringify({
           sourceMaterialId: materialId,
           examType: examType,
-          customExamName: customExamName,
           questionType: questionType,
           difficulty: difficulty,
           questionCount: parseInt(questionCount),
@@ -743,7 +744,7 @@ const PracticeCenterPage = () => {
 
                   <div className="p-6 sm:p-8 space-y-6">
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {['GATE', 'UPSC', 'University Exam', 'SSC', 'Banking', 'Custom'].map((exam) => (
+                      {['GATE', 'UPSC', 'University Exam', 'SSC', 'Banking'].map((exam) => (
                         <button
                           key={exam}
                           onClick={() => setExamType(exam)}
@@ -756,7 +757,7 @@ const PracticeCenterPage = () => {
                           <span className={`text-xs font-black uppercase tracking-wider ${
                             examType === exam ? 'text-[#4F46E5]' : 'text-gray-400'
                           }`}>
-                            {exam === 'Custom' ? 'Alternative Option' : 'Predefined Exam'}
+                            Predefined Exam
                           </span>
                           <span className="text-sm font-black text-gray-900 tracking-tight mt-auto block">
                             {exam}
@@ -765,21 +766,6 @@ const PracticeCenterPage = () => {
                       ))}
                     </div>
 
-                    {/* CUSTOM EXAM INPUT */}
-                    {examType === 'Custom' && (
-                      <div className="space-y-2.5 animate-fadeIn">
-                        <label className="block text-[11px] font-black text-gray-800 uppercase tracking-wider ml-1">
-                          Specify Board/Exam Name
-                        </label>
-                        <input
-                          type="text"
-                          value={customExamName}
-                          onChange={(e) => setCustomExamName(e.target.value)}
-                          placeholder="e.g. ISRO Scientist, CAT, Campus Placement, SAT"
-                          className="block w-full px-4 py-3.5 border border-gray-200 rounded-2xl bg-white shadow-sm placeholder-gray-400 text-gray-800 text-sm font-medium focus:ring-4 focus:ring-[#4F46E5]/10 focus:border-[#4F46E5] outline-none transition-all duration-200"
-                        />
-                      </div>
-                    )}
                   </div>
 
                   <div className="p-6 sm:p-8 bg-gray-50/50 border-t border-gray-100 flex justify-between">
@@ -792,10 +778,6 @@ const PracticeCenterPage = () => {
                     </button>
                     <button
                       onClick={() => {
-                        if (examType === 'Custom' && (!customExamName || customExamName.trim() === '')) {
-                          toast.error('Please enter a custom exam name.');
-                          return;
-                        }
                         setStep(3);
                       }}
                       className="inline-flex items-center justify-center px-6 py-3.5 bg-[#4F46E5] hover:bg-[#4338CA] text-white text-sm font-black rounded-2xl shadow-xl shadow-indigo-100/50 active:scale-[0.98] transition-all duration-150"
@@ -888,13 +870,21 @@ const PracticeCenterPage = () => {
                         <label className="block text-[11px] font-black text-gray-800 uppercase tracking-wider ml-1">
                           Topic Focus (Optional)
                         </label>
-                        <input
-                          type="text"
-                          value={topicFocus}
-                          onChange={(e) => setTopicFocus(e.target.value)}
-                          placeholder="e.g. DBMS, Data Structures, Operating Systems"
-                          className="block w-full px-4 py-3.5 border border-gray-200 rounded-2xl bg-white shadow-sm placeholder-gray-400 text-gray-800 text-sm font-semibold focus:ring-4 focus:ring-[#4F46E5]/10 focus:border-[#4F46E5] outline-none transition-all duration-200"
-                        />
+                        <div className="relative">
+                          <select
+                            value={topicFocus}
+                            onChange={(e) => setTopicFocus(e.target.value)}
+                            className="block w-full px-4 py-3.5 border border-gray-200 rounded-2xl bg-white shadow-sm text-gray-800 text-sm font-semibold outline-none focus:ring-4 focus:ring-[#4F46E5]/10 focus:border-[#4F46E5] appearance-none"
+                          >
+                            <option value="">
+                              {availableTopics.length > 0 ? 'Use all detected topics' : 'No specific topics detected'}
+                            </option>
+                            {availableTopics.map((topic) => (
+                              <option key={topic} value={topic}>{topic}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="w-4.5 h-4.5 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
                       </div>
 
                       {/* MARKING SCHEME */}
