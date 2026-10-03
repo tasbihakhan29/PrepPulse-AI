@@ -24,7 +24,6 @@ import {
   AlertTriangle,
   Download,
   Search,
-  Filter,
   Trash2,
   Eye,
   RefreshCw,
@@ -69,16 +68,13 @@ const HistoryAnalyticsPage = () => {
   const [testHistory, setTestHistory] = useState({ content: [], totalElements: 0 });
   const [testHistoryError, setTestHistoryError] = useState(null);
   const [evaluationHistory, setEvaluationHistory] = useState({ content: [], totalElements: 0 });
-  const [flashcardHistory, setFlashcardHistory] = useState({ content: [], totalElements: 0 });
 
   // UI state
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [topicFilter, setTopicFilter] = useState('');
   const [testPage, setTestPage] = useState(0);
   const [evalPage, setEvalPage] = useState(0);
-  const [flashPage, setFlashPage] = useState(0);
 
   useEffect(() => {
     loadAnalyticsData();
@@ -140,15 +136,11 @@ const HistoryAnalyticsPage = () => {
     }
 
     try {
-      const [evals, flashcards] = await Promise.all([
-        historyAnalyticsApi.getEvaluationHistory('', 0, 10),
-        historyAnalyticsApi.getFlashcardHistory('', 0, 10),
-      ]);
+      const evals = await historyAnalyticsApi.getEvaluationHistory('', 0, 10);
 
       setEvaluationHistory(evals);
-      setFlashcardHistory(flashcards);
     } catch (err) {
-      console.error('Error loading evaluation or flashcard history:', err);
+      console.error('Error loading evaluation history:', err);
     }
   };
 
@@ -176,17 +168,6 @@ const HistoryAnalyticsPage = () => {
       loadHistoryData();
     } catch (err) {
       toast.error('Failed to delete evaluation');
-    }
-  };
-
-  const handleDeleteFlashcard = async (flashcardId) => {
-    if (!confirm('Are you sure you want to delete this flashcard?')) return;
-    try {
-      await historyAnalyticsApi.deleteFlashcardHistory(flashcardId);
-      toast.success('Flashcard deleted');
-      loadHistoryData();
-    } catch (err) {
-      toast.error('Failed to delete flashcard');
     }
   };
 
@@ -374,7 +355,7 @@ const HistoryAnalyticsPage = () => {
             
             {/* SECTION NAVIGATION */}
             <div className="flex flex-wrap gap-2">
-              {['overview', 'performance', 'topics', 'heatmap', 'tests', 'evaluations', 'flashcards', 'insights'].map((section) => (
+              {['overview', 'performance', 'topics', 'heatmap', 'tests', 'evaluations', 'insights'].map((section) => (
                 <button
                   key={section}
                   onClick={() => setActiveSection(section)}
@@ -397,7 +378,6 @@ const HistoryAnalyticsPage = () => {
                   {[
                     { label: 'Total Tests Taken', value: overview?.totalTestsTaken || 0, icon: BookOpen, color: 'indigo' },
                     { label: 'Total Evaluations', value: overview?.totalEvaluations || 0, icon: Award, color: 'emerald' },
-                    { label: 'Flashcards Generated', value: overview?.flashcardsGenerated || 0, icon: Target, color: 'amber' },
                     { label: 'Current Streak 🔥', value: overview?.currentStudyStreak || 0, icon: Flame, color: 'red' },
                     { label: 'Average Score', value: overview?.averageScore?.toFixed(1) || 0, icon: TrendingUp, color: 'purple' },
                     { label: 'Best Score', value: overview?.bestScore?.toFixed(1) || 0, icon: CheckCircle2, color: 'green' },
@@ -449,10 +429,6 @@ const HistoryAnalyticsPage = () => {
                       <div className="bg-white/10 rounded-xl p-4">
                         <p className="text-xs font-semibold text-indigo-100 mb-1">Daily Goal</p>
                         <p className="text-sm font-bold">{recommendations.recommendedDailyGoal} questions</p>
-                      </div>
-                      <div className="bg-white/10 rounded-xl p-4">
-                        <p className="text-xs font-semibold text-indigo-100 mb-1">Flashcards to Review</p>
-                        <p className="text-sm font-bold">{recommendations.recommendedFlashcards}</p>
                       </div>
                     </div>
                   </div>
@@ -690,46 +666,6 @@ const HistoryAnalyticsPage = () => {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* FLASHCARDS SECTION */}
-            {activeSection === 'flashcards' && (
-              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="text-base font-extrabold text-gray-900">Flashcard History</h3>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Filter by topic..."
-                      value={topicFilter}
-                      onChange={(e) => setTopicFilter(e.target.value)}
-                      className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
-                    />
-                    <button
-                      onClick={() => historyAnalyticsApi.getFlashcardHistory(topicFilter, 0, 10).then(setFlashcardHistory)}
-                      className="p-2 text-gray-400 hover:text-[#4F46E5] rounded-lg transition-all"
-                    >
-                      <Filter className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {flashcardHistory.content.map((flashcard, index) => (
-                    <div key={index} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-800 line-clamp-1">{flashcard.question}</p>
-                        <p className="text-xs text-gray-500">{flashcard.topic} • {new Date(flashcard.createdAt).toLocaleDateString()}</p>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteFlashcard(flashcard.id)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
                   ))}
                 </div>

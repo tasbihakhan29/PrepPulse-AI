@@ -69,19 +69,14 @@ const PracticeCenterPage = () => {
   const [generatedTest, setGeneratedTest] = useState(null);
   const streamAbortController = useRef(null);
 
-  // Step 5 State: Interactive Testing / Flashcards
-  const [testMode, setTestMode] = useState('review'); // 'review' (list questions), 'quiz' (taking exam), 'results' (quiz score), 'flashcards'
+  // Step 5 State: Interactive Testing
+  const [testMode, setTestMode] = useState('review'); // 'review' (list questions), 'quiz' (taking exam), 'results' (quiz score)
   const [userAnswers, setUserAnswers] = useState({}); // {questionId: selectedOption}
   const [quizResults, setQuizResults] = useState(null); // {score, correct, total, topicScores}
   const [quizStartTime, setQuizStartTime] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef(null);
   
-  // Flashcards state
-  const [flashcards, setFlashcards] = useState([]);
-  const [loadingFlashcards, setLoadingFlashcards] = useState(false);
-  const [flippedCards, setFlippedCards] = useState({}); // {cardId: boolean}
-
   // Textarea resize ref
   const textareaRef = useRef(null);
 
@@ -304,8 +299,7 @@ const PracticeCenterPage = () => {
           } else if (eventType === 'complete') {
             const finalTest = JSON.parse(dataContent);
             setGeneratedTest(finalTest);
-            setStep(5);
-            setTestMode('review');
+            navigate(`/test/${finalTest.id}`);
             toast.success('Practice quiz generated successfully!');
             return;
           } else if (eventType === 'error') {
@@ -415,46 +409,6 @@ const PracticeCenterPage = () => {
       console.error(err);
       toast.error('Could not save your test stats.');
     }
-  };
-
-  // FLASHCARD GENERATION METHODS
-  const triggerFlashcardGeneration = async () => {
-    setTestMode('flashcards');
-    setLoadingFlashcards(true);
-    setFlashcards([]);
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/practice/flashcards`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          sourceMaterialId: materialId,
-          topic: topicFocus
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error('Flashcard generation failed.');
-
-      setFlashcards(data);
-      toast.success('Flashcard review deck compiled!');
-    } catch (err) {
-      console.error(err);
-      toast.error('Could not generate flashcards.');
-      setTestMode('review');
-    } finally {
-      setLoadingFlashcards(false);
-    }
-  };
-
-  const toggleFlipCard = (cardId) => {
-    setFlippedCards((prev) => ({
-      ...prev,
-      [cardId]: !prev[cardId]
-    }));
   };
 
   const formatTime = (secs) => {
@@ -1054,7 +1008,7 @@ const PracticeCenterPage = () => {
                 </div>
               )}
 
-              {/* STEP 5: OUTPUT ACTIONS AND INTERACTIVE TESTING/FLASHCARDS */}
+              {/* STEP 5: OUTPUT ACTIONS AND INTERACTIVE TESTING */}
               {step === 5 && generatedTest && (
                 <div className="space-y-6">
                   
@@ -1091,14 +1045,6 @@ const PracticeCenterPage = () => {
                         }`}
                       >
                         Start Test
-                      </button>
-                      <button
-                        onClick={triggerFlashcardGeneration}
-                        className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-black transition-all border ${
-                          testMode === 'flashcards' ? 'bg-indigo-50 border-indigo-150 text-[#4F46E5]' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        Flashcards
                       </button>
                     </div>
                   </div>
@@ -1318,78 +1264,6 @@ const PracticeCenterPage = () => {
                           className="inline-flex items-center justify-center px-6 py-3.5 bg-[#4F46E5] text-white text-sm font-black rounded-2xl hover:bg-[#4338CA] active:scale-[0.98] transition-all"
                         >
                           Return to Dashboard
-                        </button>
-                      </div>
-
-                    </div>
-                  )}
-
-                  {/* 5D. FLASHCARDS SCREEN */}
-                  {testMode === 'flashcards' && (
-                    <div className="space-y-6">
-                      
-                      {loadingFlashcards ? (
-                        /* FLASHCARD LOADER */
-                        <div className="bg-white rounded-3xl border border-gray-200/80 shadow-sm p-16 text-center select-none flex flex-col items-center">
-                          <div className="w-12 h-12 border-3 border-indigo-200 border-t-indigo-650 rounded-full animate-spin mb-4" />
-                          <p className="text-sm font-extrabold text-gray-800">Generating Study Deck...</p>
-                          <p className="text-xs text-gray-400 mt-1 font-semibold">Creating revision concepts based on notes structure.</p>
-                        </div>
-                      ) : (
-                        /* FLASHCARD GRID */
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                          {flashcards.map((card) => {
-                            const isFlipped = flippedCards[card.id] || false;
-                            return (
-                              <div
-                                key={card.id}
-                                onClick={() => toggleFlipCard(card.id)}
-                                className="group h-48 cursor-pointer perspective"
-                              >
-                                <div className={`relative w-full h-full duration-500 transform-style transition-transform ${
-                                  isFlipped ? 'rotate-y-180' : ''
-                                }`}>
-                                  
-                                  {/* FRONT CARD */}
-                                  <div className="absolute w-full h-full bg-white border border-gray-200/80 rounded-2xl shadow-sm p-6 flex flex-col justify-between backface-hidden">
-                                    <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50/50 border border-indigo-100/20 px-2 py-0.5 rounded-md w-fit">
-                                      {card.topic || 'Concept'}
-                                    </span>
-                                    <p className="text-xs font-bold text-gray-900 leading-relaxed text-center my-auto px-2">
-                                      {card.question}
-                                    </p>
-                                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-wider text-center mt-auto">
-                                      Tap to Flip &bull; Answer
-                                    </span>
-                                  </div>
-
-                                  {/* BACK CARD */}
-                                  <div className="absolute w-full h-full bg-gradient-to-br from-indigo-550 to-indigo-650 text-white rounded-2xl shadow-md p-6 flex flex-col justify-between backface-hidden rotate-y-180">
-                                    <span className="text-[9px] font-black text-white/40 uppercase tracking-widest bg-white/10 px-2 py-0.5 rounded-md w-fit border border-white/10">
-                                      Explanation
-                                    </span>
-                                    <p className="text-xs font-semibold text-indigo-50 leading-relaxed text-center my-auto px-2">
-                                      {card.answer}
-                                    </p>
-                                    <span className="text-[9px] font-black text-indigo-200/60 uppercase tracking-wider text-center mt-auto">
-                                      Tap to Flip &bull; Concept
-                                    </span>
-                                  </div>
-
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* BACK ACTION */}
-                      <div className="flex justify-center pt-4">
-                        <button
-                          onClick={() => { setTestMode('review'); }}
-                          className="inline-flex items-center justify-center px-5 py-3 border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 active:scale-[0.98] text-sm font-bold rounded-2xl transition-all"
-                        >
-                          Return to Review
                         </button>
                       </div>
 

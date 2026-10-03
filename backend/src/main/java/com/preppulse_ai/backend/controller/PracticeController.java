@@ -1,7 +1,6 @@
 package com.preppulse_ai.backend.controller;
 
 import com.preppulse_ai.backend.dto.*;
-import com.preppulse_ai.backend.entity.Flashcard;
 import com.preppulse_ai.backend.entity.TestResult;
 import com.preppulse_ai.backend.entity.User;
 import com.preppulse_ai.backend.repository.UserRepository;
@@ -102,19 +101,6 @@ public class PracticeController {
         return practiceService.generateTestStream(user, request);
     }
 
-    /**
-     * Generates Flashcards from study notes.
-     */
-    @PostMapping("/flashcards")
-    public ResponseEntity<List<Flashcard>> generateFlashcards(
-            Principal principal,
-            @RequestBody FlashcardRequest request) {
-        
-        User user = getAuthenticatedUser(principal);
-        log.info("Generating flashcards for user: {}", user.getEmail());
-        List<Flashcard> flashcards = practiceService.generateFlashcards(user, request);
-        return ResponseEntity.ok(flashcards);
-    }
 
     /**
      * Submits quiz results.

@@ -31,7 +31,6 @@ public class PracticeService {
     private final UploadedMaterialRepository uploadedMaterialRepository;
     private final GeneratedTestRepository generatedTestRepository;
     private final GeneratedQuestionRepository generatedQuestionRepository;
-    private final FlashcardRepository flashcardRepository;
     private final TestResultRepository testResultRepository;
 
     private final SupabaseStorageService supabaseStorageService;
@@ -423,122 +422,6 @@ public class PracticeService {
         }
 
         return "MCQ";
-    }
-
-    /**
-     * Generates Flashcards from study material
-     */
-    @Transactional
-    public List<Flashcard> generateFlashcards(User user, FlashcardRequest request) {
-        UploadedMaterial material = uploadedMaterialRepository.findById(request.getSourceMaterialId())
-                .orElseThrow(() -> new IllegalArgumentException("Source material not found."));
-
-        if (!material.getUser().getId().equals(user.getId())) {
-            throw new SecurityException("Unauthorized access to this study material.");
-        }
-
-        String systemPrompt = "You are an academic flashcard generator. Generate a set of flashcards (Question/Answer pairs) based on the provided material.\n" +
-                "You must return a structured JSON object with a single key \"flashcards\" which points to an array of flashcard objects.\n" +
-                "Each flashcard object must strictly have the following fields:\n" +
-                "1. \"question\" (String): the question or concept name\n" +
-                "2. \"answer\" (String): the concise definition or answer\n" +
-                "3. \"topic\" (String): the category/topic\n\n" +
-                "Example format:\n" +
-                "{\n" +
-                "  \"flashcards\": [\n" +
-                "    {\n" +
-                "      \"question\": \"Define Normalization\",\n" +
-                "      \"answer\": \"The process of organizing data in a relational database to reduce redundancy.\",\n" +
-                "      \"topic\": \"DBMS\"\n" +
-                "    }\n" +
-                "  ]\n" +
-                "}";
-
-        String userPrompt = "Source material:\n" + material.getExtractedText() + "\n\n" +
-                (request.getTopic() != null ? "Focus on topic: " + request.getTopic() : "");
-
-        final StringBuilder responseBuilder = new StringBuilder();
-        // If Groq key is empty, this will call generateMockStream and trigger onComplete asynchronously.
-        // We will do a synchronous wait or mock call for simplicity in this endpoint since it's not SSE
-        if (groqAiService.getClass().getSimpleName() != null && (System.getenv("GROQ_API_KEY") == null || System.getenv("GROQ_API_KEY").isEmpty())) {
-            // Development fallback mock flashcards
-            List<Flashcard> mockCards = Arrays.asList(
-                    Flashcard.builder().user(user).question("What is Dijkstra's Algorithm?").answer("A graph search algorithm that solves the single-source shortest path problem for a graph with non-negative edge path costs.").topic("Graph Algorithms").build(),
-                    Flashcard.builder().user(user).question("What is Third Normal Form (3NF)?").answer("A relation schema is in 3NF if it is in 2NF and no non-prime attribute is transitively dependent on the primary key.").topic("Database Management Systems").build(),
-                    Flashcard.builder().user(user).question("What is a Translation Lookaside Buffer (TLB)?").answer("A memory cache that stores recent translations of virtual memory to physical addresses for rapid access.").topic("Operating Systems").build()
-            );
-            return flashcardRepository.saveAll(mockCards);
-        }
-
-        // Run synchronously/semi-synchronously for HTTP JSON response
-        final Object lock = new Object();
-        groqAiService.streamCompletion(systemPrompt, userPrompt, new GroqAiService.TokenConsumer() {
-            @Override
-            public void accept(String token) {
-                responseBuilder.append(token);
-            }
-
-            @Override
-            public void onComplete(String fullResponse) {
-                synchronized (lock) {
-                    lock.notify();
-                }
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                synchronized (lock) {
-                    lock.notify();
-                }
-            }
-        });
-
-        synchronized (lock) {
-            try {
-                lock.wait(30000); // 30 seconds max wait
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        try {
-            String cleanResponse = responseBuilder.toString().trim();
-            if (cleanResponse.isEmpty()) {
-                throw new RuntimeException("Empty response from AI engine.");
-            }
-
-            Map<String, List<Map<String, String>>> parsed = objectMapper.readValue(
-                    cleanResponse,
-                    new TypeReference<Map<String, List<Map<String, String>>>>() {}
-            );
-
-            List<Map<String, String>> cardsList = parsed.get("flashcards");
-            if (cardsList == null || cardsList.isEmpty()) {
-                throw new IllegalArgumentException("No flashcards were generated by the AI.");
-            }
-
-            List<Flashcard> savedFlashcards = new ArrayList<>();
-            for (Map<String, String> cardMap : cardsList) {
-                Flashcard card = Flashcard.builder()
-                        .user(user)
-                        .question(cardMap.get("question"))
-                        .answer(cardMap.get("answer"))
-                        .topic(cardMap.get("topic"))
-                        .build();
-                savedFlashcards.add(card);
-            }
-
-            return flashcardRepository.saveAll(savedFlashcards);
-        } catch (Exception e) {
-            log.error("Failed to generate flashcards from AI, returning mock fallback data", e);
-            // Dynamic development mock fallback on parsing errors
-            List<Flashcard> mockCards = Arrays.asList(
-                    Flashcard.builder().user(user).question("What is Dijkstra's Algorithm?").answer("A graph search algorithm that solves the single-source shortest path problem for a graph with non-negative edge path costs.").topic("Graph Algorithms").build(),
-                    Flashcard.builder().user(user).question("What is Third Normal Form (3NF)?").answer("A relation schema is in 3NF if it is in 2NF and no non-prime attribute is transitively dependent on the primary key.").topic("Database Management Systems").build(),
-                    Flashcard.builder().user(user).question("What is a Translation Lookaside Buffer (TLB)?").answer("A memory cache that stores recent translations of virtual memory to physical addresses for rapid access.").topic("Operating Systems").build()
-            );
-            return flashcardRepository.saveAll(mockCards);
-        }
     }
 
     /**

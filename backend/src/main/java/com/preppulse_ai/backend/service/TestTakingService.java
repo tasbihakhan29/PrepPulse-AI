@@ -270,21 +270,8 @@ public class TestTakingService {
         }
 
         try {
-            String questionType = inferQuestionType(question);
-
-            if ("MSQ".equals(questionType)) {
-                Set<String> userAnswers = Arrays.stream(userAnswer.split(","))
-                        .map(String::trim)
-                        .map(String::toUpperCase)
-                        .collect(Collectors.toSet());
-                Set<String> correctAnswers = Arrays.stream(correctAnswer.split(","))
-                        .map(String::trim)
-                        .map(String::toUpperCase)
-                        .collect(Collectors.toSet());
-                return userAnswers.equals(correctAnswers);
-            }
-
-            if ("Numerical".equals(questionType)) {
+            List<String> options = parseOptions(question.getOptionsJson());
+            if (options.size() <= 1) {
                 try {
                     double userNum = Double.parseDouble(userAnswer.trim());
                     double correctNum = Double.parseDouble(correctAnswer.trim());
@@ -294,11 +281,52 @@ public class TestTakingService {
                 }
             }
 
-            return userAnswer.trim().equalsIgnoreCase(correctAnswer.trim());
+            Set<String> userAnswers = normalizeAnswerSet(userAnswer, options);
+            Set<String> correctAnswers = normalizeAnswerSet(correctAnswer, options);
+            return !userAnswers.isEmpty() && userAnswers.equals(correctAnswers);
         } catch (Exception e) {
             log.error("Error checking answer", e);
             return userAnswer.trim().equalsIgnoreCase(correctAnswer.trim());
         }
+    }
+
+    private Set<String> normalizeAnswerSet(String answer, List<String> options) {
+        String trimmedAnswer = answer == null ? "" : answer.trim();
+        if (trimmedAnswer.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        String exactOptionLetter = findOptionLetter(trimmedAnswer, options);
+        if (exactOptionLetter != null) {
+            return Set.of(exactOptionLetter);
+        }
+
+        return Arrays.stream(trimmedAnswer.split(","))
+                .map(String::trim)
+                .filter(token -> !token.isEmpty())
+                .map(token -> {
+                    String optionLetter = findOptionLetter(token, options);
+                    return optionLetter != null ? optionLetter : token.toLowerCase(Locale.ROOT);
+                })
+                .collect(Collectors.toSet());
+    }
+
+    private String findOptionLetter(String answer, List<String> options) {
+        String normalizedAnswer = answer.trim();
+        if (normalizedAnswer.matches("[A-Za-z]")) {
+            int optionIndex = Character.toUpperCase(normalizedAnswer.charAt(0)) - 'A';
+            if (optionIndex >= 0 && optionIndex < options.size()) {
+                return normalizedAnswer.toUpperCase(Locale.ROOT);
+            }
+        }
+
+        for (int index = 0; index < options.size(); index++) {
+            if (options.get(index).trim().equalsIgnoreCase(normalizedAnswer)) {
+                return String.valueOf((char) ('A' + index));
+            }
+        }
+
+        return null;
     }
 
     private void saveTestResult(TestAttempt attempt, int correctCount, int totalQuestions) {

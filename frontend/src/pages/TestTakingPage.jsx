@@ -53,8 +53,10 @@ const TestTakingPage = () => {
 
   // Auto-save debounce
   const saveTimeoutRef = useRef(null);
+  const timerRef = useRef(null);
   const hiddenSinceRef = useRef(null);
   const autoSubmitTriggeredRef = useRef(false);
+  const submittingRef = useRef(false);
 
   // Load test
   useEffect(() => {
@@ -80,6 +82,7 @@ const TestTakingPage = () => {
         setVisitedQuestions(visited);
         setMarkedForReview(new Set());
         autoSubmitTriggeredRef.current = false;
+        submittingRef.current = false;
         
         // Calculate time left based on duration
         const startTime = new Date(response.startTime);
@@ -103,11 +106,11 @@ const TestTakingPage = () => {
 
   // Timer
   useEffect(() => {
-    if (!testData) {
+    if (!testData || submitting) {
       return;
     }
 
-    const timer = setInterval(() => {
+    timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           if (!autoSubmitTriggeredRef.current) {
@@ -128,8 +131,11 @@ const TestTakingPage = () => {
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [timeLeft, testData]);
+    return () => {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
+  }, [timeLeft, submitting, testData]);
 
   // Tab switch detection
   useEffect(() => {
@@ -189,7 +195,7 @@ const TestTakingPage = () => {
   );
 
   const submitTest = useCallback(async (forceSubmit = false) => {
-    if (!testData || submitting) {
+    if (!testData || submitting || submittingRef.current) {
       return;
     }
 
@@ -207,6 +213,9 @@ const TestTakingPage = () => {
       return;
     }
 
+    submittingRef.current = true;
+    clearInterval(timerRef.current);
+    timerRef.current = null;
     setSubmitting(true);
     setShowSubmitDialog(false);
 
@@ -216,6 +225,7 @@ const TestTakingPage = () => {
     } catch (err) {
       console.error('Error submitting test:', err);
       toast.error('Failed to submit test. Please try again.');
+      submittingRef.current = false;
       setSubmitting(false);
       autoSubmitTriggeredRef.current = false;
     }
@@ -530,6 +540,7 @@ const TestTakingPage = () => {
                     <button
                       key={index}
                       onClick={() => handleJumpToQuestion(index)}
+                      disabled={submitting}
                       className={`w-10 h-10 rounded-lg font-bold text-sm transition-all hover:scale-105 ${bgColor} ${
                         currentQuestionIndex === index ? 'ring-2 ring-[#4F46E5] ring-offset-2' : ''
                       }`}
@@ -566,6 +577,7 @@ const TestTakingPage = () => {
                       </div>
                       <button
                         onClick={handleMarkForReview}
+                        disabled={submitting}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${
                           markedForReview.has(currentQuestionIndex)
                             ? 'bg-green-500 text-white'
@@ -594,6 +606,7 @@ const TestTakingPage = () => {
                             step="any"
                             inputMode="decimal"
                             value={answers[currentQuestion.id] ?? ''}
+                            disabled={submitting}
                             onChange={(event) => handleNumericalAnswerChange(currentQuestion.id, event.target.value)}
                             placeholder="Type your answer"
                             className="w-full rounded-xl border border-gray-200 px-4 py-3 text-gray-900 font-semibold focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent"
@@ -625,6 +638,7 @@ const TestTakingPage = () => {
                                 name={`question-${currentQuestion.id}`}
                                 value={optionLetter}
                                 checked={isSelected}
+                                disabled={submitting}
                                 onChange={() => (
                                   currentQuestionType === 'MSQ'
                                     ? handleMultipleAnswerChange(currentQuestion.id, optionLetter)
@@ -651,7 +665,7 @@ const TestTakingPage = () => {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={handlePrevious}
-                      disabled={currentQuestionIndex === 0}
+                      disabled={submitting || currentQuestionIndex === 0}
                       className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                       <ChevronLeft className="w-4 h-4" />
@@ -659,6 +673,7 @@ const TestTakingPage = () => {
                     </button>
                     <button
                       onClick={handleClearResponse}
+                      disabled={submitting}
                       className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all"
                     >
                       <RotateCcw className="w-4 h-4" />
@@ -669,7 +684,7 @@ const TestTakingPage = () => {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={handleNext}
-                      disabled={currentQuestionIndex >= (testData?.questions?.length || 0) - 1}
+                      disabled={submitting || currentQuestionIndex >= (testData?.questions?.length || 0) - 1}
                       className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                       Next
@@ -696,6 +711,16 @@ const TestTakingPage = () => {
           </div>
         </main>
       </div>
+
+      {submitting && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-gray-950/45 px-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-8 text-center shadow-2xl">
+            <div className="mx-auto mb-5 h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-[#4F46E5]" />
+            <h3 className="text-xl font-black text-gray-900">Submitting your test...</h3>
+            <p className="mt-2 text-sm font-semibold text-gray-500">Checking your answers and calculating your result.</p>
+          </div>
+        </div>
+      )}
 
       {/* WARNINGS */}
       {timeWarning && (

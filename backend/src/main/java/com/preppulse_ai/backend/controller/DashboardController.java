@@ -4,7 +4,6 @@ import com.preppulse_ai.backend.entity.TestAttempt;
 import com.preppulse_ai.backend.entity.User;
 import com.preppulse_ai.backend.dto.TopicPerformanceResponse;
 import com.preppulse_ai.backend.repository.AnswerEvaluationRepository;
-import com.preppulse_ai.backend.repository.FlashcardRepository;
 import com.preppulse_ai.backend.repository.TestAttemptRepository;
 import com.preppulse_ai.backend.repository.UserRepository;
 import com.preppulse_ai.backend.service.HistoryAnalyticsService;
@@ -30,7 +29,6 @@ public class DashboardController {
 
     private final UserRepository userRepository;
     private final TestAttemptRepository testAttemptRepository;
-    private final FlashcardRepository flashcardRepository;
     private final AnswerEvaluationRepository answerEvaluationRepository;
     private final HistoryAnalyticsService historyAnalyticsService;
 
@@ -52,8 +50,6 @@ public class DashboardController {
         List<TestAttempt> attempts = testAttemptRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
             .filter(attempt -> Boolean.TRUE.equals(attempt.getSubmitted()))
             .collect(Collectors.toList());
-        long flashcardsCount = flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId).size();
-
         int totalTests = attempts.size();
         double averageScore = round(attempts.stream()
             .map(TestAttempt::getPercentage)
@@ -67,7 +63,6 @@ public class DashboardController {
         stats.put("totalTests", totalTests);
         stats.put("averageScore", averageScore);
         stats.put("studyStreak", studyStreak);
-        stats.put("flashcardsGenerated", flashcardsCount);
         stats.put("aiEvaluations", answerEvaluationRepository.countByUserId(userId));
 
         // 3. Performance Trend (last 5 tests in chronological order)

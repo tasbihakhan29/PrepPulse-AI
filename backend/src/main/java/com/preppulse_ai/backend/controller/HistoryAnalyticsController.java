@@ -128,22 +128,6 @@ public class HistoryAnalyticsController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/flashcards")
-    public ResponseEntity<Page<FlashcardHistoryResponse>> getFlashcardHistory(
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) String topic,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
-            Principal principal
-    ) {
-        User user = authenticatedUserResolver.resolve(principal);
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<FlashcardHistoryResponse> response = historyAnalyticsService.getFlashcardHistory(
-                user.getId(), search, topic, pageable
-        );
-        return ResponseEntity.ok(response);
-    }
-
     @DeleteMapping("/tests/{attemptId}")
     public ResponseEntity<Void> deleteTestHistory(
             @PathVariable UUID attemptId,
@@ -161,16 +145,6 @@ public class HistoryAnalyticsController {
     ) {
         User user = authenticatedUserResolver.resolve(principal);
         historyAnalyticsService.deleteEvaluationHistory(submissionId, user.getId());
-        return ResponseEntity.noContent().build();
-    }
-
-    @DeleteMapping("/flashcards/{flashcardId}")
-    public ResponseEntity<Void> deleteFlashcardHistory(
-            @PathVariable UUID flashcardId,
-            Principal principal
-    ) {
-        User user = authenticatedUserResolver.resolve(principal);
-        historyAnalyticsService.deleteFlashcardHistory(flashcardId, user.getId());
         return ResponseEntity.noContent().build();
     }
 

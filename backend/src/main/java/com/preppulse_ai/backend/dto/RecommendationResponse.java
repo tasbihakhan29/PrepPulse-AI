@@ -15,5 +15,4 @@ public class RecommendationResponse {
     private String suggestedDifficulty;
     private String suggestedQuestionType;
     private Integer recommendedDailyGoal;
-    private Integer recommendedFlashcards;
 }

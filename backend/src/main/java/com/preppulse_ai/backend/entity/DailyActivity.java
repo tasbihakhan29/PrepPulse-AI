@@ -42,10 +42,6 @@ public class DailyActivity {
     @Builder.Default
     private Integer evaluationsCompleted = 0;
 
-    @Column(name = "flashcards_reviewed")
-    @Builder.Default
-    private Integer flashcardsReviewed = 0;
-
     @Column(name = "time_spent")
     @Builder.Default
     private Integer timeSpent = 0; // in seconds

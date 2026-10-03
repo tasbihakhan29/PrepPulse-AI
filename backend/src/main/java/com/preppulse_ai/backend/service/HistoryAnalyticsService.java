@@ -35,7 +35,6 @@ public class HistoryAnalyticsService {
     private final TestAttemptRepository testAttemptRepository;
     private final TestResultRepository testResultRepository;
     private final AnswerSubmissionRepository answerSubmissionRepository;
-    private final FlashcardRepository flashcardRepository;
     private final GeneratedTestRepository generatedTestRepository;
     private final GeneratedQuestionRepository generatedQuestionRepository;
     private final LearningStatisticsRepository learningStatisticsRepository;
@@ -50,9 +49,6 @@ public class HistoryAnalyticsService {
         List<TestAttempt> attempts = completedAttempts(userId);
         long totalTestsTaken = attempts.size();
         long totalEvaluations = answerEvaluationRepository.countByUserId(userId);
-        List<Flashcard> allFlashcards = flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
-        long flashcardsGenerated = allFlashcards.size();
-
         Double averageScore = attempts.stream()
             .map(TestAttempt::getPercentage)
             .filter(Objects::nonNull)
@@ -82,7 +78,6 @@ public class HistoryAnalyticsService {
         return AnalyticsOverviewResponse.builder()
                 .totalTestsTaken((int) totalTestsTaken)
                 .totalEvaluations((int) totalEvaluations)
-                .flashcardsGenerated((int) flashcardsGenerated)
                 .averageScore(averageScore)
                 .bestScore(bestScore)
                 .currentStudyStreak(currentStudyStreak)
@@ -156,13 +151,9 @@ public class HistoryAnalyticsService {
             LocalDate date = evaluation.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
             if (!date.isBefore(startDate)) activity.computeIfAbsent(date, ignored -> new ActivityAggregate()).evaluations++;
         }
-        for (Flashcard flashcard : flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId)) {
-            LocalDate date = flashcard.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
-            if (!date.isBefore(startDate)) activity.computeIfAbsent(date, ignored -> new ActivityAggregate()).flashcards++;
-        }
         return activity.entrySet().stream().map(entry -> {
             ActivityAggregate value = entry.getValue();
-            int total = value.tests + value.questions + value.evaluations + value.flashcards;
+            int total = value.tests + value.questions + value.evaluations;
             int level = total == 0 ? 0 : total <= 5 ? 1 : total <= 10 ? 2 : total <= 20 ? 3 : total <= 40 ? 4 : 5;
             return HeatmapDataResponse.builder().date(entry.getKey()).activityLevel(level)
                     .testsAttempted(value.tests).questionsSolved(value.questions)
@@ -332,14 +323,11 @@ public class HistoryAnalyticsService {
         String suggestedDifficulty = weakTopics.isEmpty() ? "Medium" : "Easy";
         String suggestedQuestionType = "MCQ";
         Integer recommendedDailyGoal = 20;
-        Integer recommendedFlashcards = 10;
-
         return RecommendationResponse.builder()
                 .recommendedTopic(recommendedTopic)
                 .suggestedDifficulty(suggestedDifficulty)
                 .suggestedQuestionType(suggestedQuestionType)
                 .recommendedDailyGoal(recommendedDailyGoal)
-                .recommendedFlashcards(recommendedFlashcards)
                 .build();
     }
 
@@ -400,27 +388,6 @@ public class HistoryAnalyticsService {
         });
     }
 
-    public Page<FlashcardHistoryResponse> getFlashcardHistory(UUID userId, String topic, Pageable pageable) {
-        return getFlashcardHistory(userId, null, topic, pageable);
-    }
-
-    public Page<FlashcardHistoryResponse> getFlashcardHistory(UUID userId, String search, String topic, Pageable pageable) {
-        Page<Flashcard> flashcards = flashcardRepository.findFiltered(
-                userId,
-                (search == null || search.isBlank()) ? null : search,
-                (topic == null || topic.isBlank()) ? null : topic,
-                pageable
-        );
-
-        return flashcards.map(flashcard -> FlashcardHistoryResponse.builder()
-                .id(flashcard.getId())
-                .question(flashcard.getQuestion())
-                .answer(flashcard.getAnswer())
-                .topic(flashcard.getTopic())
-                .createdAt(flashcard.getCreatedAt())
-                .build());
-    }
-
     @Transactional
     public void deleteTestHistory(UUID attemptId, UUID userId) {
         TestAttempt attempt = testAttemptRepository.findById(attemptId)
@@ -446,18 +413,6 @@ public class HistoryAnalyticsService {
         }
 
         answerSubmissionRepository.delete(submission);
-    }
-
-    @Transactional
-    public void deleteFlashcardHistory(UUID flashcardId, UUID userId) {
-        Flashcard flashcard = flashcardRepository.findById(flashcardId)
-                .orElseThrow(() -> new RuntimeException("Flashcard not found"));
-
-        if (!flashcard.getUser().getId().equals(userId)) {
-            throw new RuntimeException("You can only delete your own history");
-        }
-
-        flashcardRepository.delete(flashcard);
     }
 
     @Transactional
@@ -492,9 +447,6 @@ public class HistoryAnalyticsService {
         activity.setTimeSpent(attempts.stream().mapToInt(attempt -> attempt.getTimeTaken() == null ? 0 : attempt.getTimeTaken()).sum());
         activity.setEvaluationsCompleted((int) answerEvaluationRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
             .filter(evaluation -> evaluation.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate().equals(date))
-            .count());
-        activity.setFlashcardsReviewed((int) flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
-            .filter(card -> card.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate().equals(date))
             .count());
         dailyActivityRepository.save(activity);
     }
@@ -534,8 +486,7 @@ public class HistoryAnalyticsService {
     private int calculateActivityLevel(DailyActivity activity) {
         int totalActivity = activity.getTestsAttempted() +
                            activity.getQuestionsAttempted() +
-                           activity.getEvaluationsCompleted() +
-                           activity.getFlashcardsReviewed();
+                           activity.getEvaluationsCompleted();
 
         if (totalActivity == 0) return 0;
         if (totalActivity <= 5) return 1;
@@ -580,8 +531,6 @@ public class HistoryAnalyticsService {
         completedAttempts(userId).forEach(attempt -> dates.add(eventDate(attempt)));
         answerEvaluationRepository.findByUserIdOrderByCreatedAtAsc(userId)
                 .forEach(evaluation -> dates.add(evaluation.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()));
-        flashcardRepository.findAllByUserIdOrderByCreatedAtDesc(userId)
-                .forEach(card -> dates.add(card.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate()));
         return dates;
     }
 
@@ -634,7 +583,6 @@ public class HistoryAnalyticsService {
         private int tests;
         private int questions;
         private int evaluations;
-        private int flashcards;
 
         private void addTest(int questionCount, Integer timeTaken) {
             tests++;
@@ -772,7 +720,6 @@ public class HistoryAnalyticsService {
                 drawText(contentStream, "• Recommended focus topic: " + recs.getRecommendedTopic(), 50, recY, new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
                 drawText(contentStream, "• Suggested study difficulty: " + recs.getSuggestedDifficulty(), 50, recY - 20, new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
                 drawText(contentStream, "• Recommended daily question target: " + recs.getRecommendedDailyGoal() + " questions", 50, recY - 40, new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
-                drawText(contentStream, "• Targeted flashcard reviews to perform: " + recs.getRecommendedFlashcards() + " cards", 50, recY - 60, new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
                 
                 // Footer
                 contentStream.setNonStrokingColor(148, 163, 184); // slate gray
@@ -806,18 +753,6 @@ public class HistoryAnalyticsService {
     public void recordAnswerEvaluation(AnswerSubmission submission) {
         updateDailyActivity(submission.getUser().getId(), submission.getCreatedAt().atZoneSameInstant(ZoneOffset.UTC).toLocalDate());
         updateLearningStatisticsFromEvaluation(submission);
-    }
-
-    @Transactional
-    public void recordFlashcardActivity(UUID userId, int reviewedCount) {
-        updateDailyActivity(userId, LocalDate.now(ZoneOffset.UTC));
-        Optional<DailyActivity> existing = dailyActivityRepository.findByUserIdAndActivityDate(userId, LocalDate.now(ZoneOffset.UTC));
-        DailyActivity activity = existing.orElseGet(() -> DailyActivity.builder()
-                .user(userRepository.findById(userId).orElseThrow())
-                .activityDate(LocalDate.now(ZoneOffset.UTC))
-                .build());
-        activity.setFlashcardsReviewed((activity.getFlashcardsReviewed() == null ? 0 : activity.getFlashcardsReviewed()) + reviewedCount);
-        dailyActivityRepository.save(activity);
     }
 
     private void updateLearningStatisticsFromAttempt(TestAttempt attempt) {

@@ -32,7 +32,6 @@ Traditional exam preparation methods are time-consuming and lack personalized fe
 - **Live Test Taking**: Professional exam interface with timer, auto-save, tab switch detection, and instant evaluation
 - **Answer Evaluator**: Upload handwritten answer images for AI-powered evaluation with detailed feedback
 - **Smart Analytics**: Comprehensive dashboard with performance charts, topic-wise analysis, and learning insights
-- **Flashcard System**: Generate and review flashcards from study materials
 - **History & Progress**: Track all test attempts with detailed breakdowns and improvement trends
 
 ### Authentication & Security
@@ -391,8 +390,6 @@ The frontend will start on `http://localhost:5173`
 - `POST /api/practice/generate` - Generate test from material
 - `GET /api/practice/tests` - Get user's generated tests
 - `DELETE /api/practice/material/{id}` - Delete material
-- `POST /api/practice/flashcards` - Generate flashcards
-- `GET /api/practice/flashcards` - Get user's flashcards
 
 ### Test Taking
 
@@ -491,7 +488,6 @@ The frontend will start on `http://localhost:5173`
 - [ ] Advanced adaptive learning algorithms
 - [ ] Video lecture integration
 - [ ] Community question sharing
-- [ ] Spaced repetition for flashcards
 - [ ] Voice-enabled answer evaluation
 - [ ] Multi-language support
 - [ ] Integration with learning management systems

@@ -59,15 +59,6 @@ export const historyAnalyticsApi = {
     return response.data;
   },
 
-  getFlashcardHistory: async (options = {}, legacyPage, legacySize) => {
-    const normalized = typeof options === 'object' && options !== null
-      ? options
-      : { search: options, page: legacyPage, size: legacySize };
-    const { search = '', topic = '', page = 0, size = 10 } = normalized;
-    const response = await API.get('/api/history/flashcards', { params: { search, topic, page, size } });
-    return response.data;
-  },
-
   exportCsv: async () => {
     const response = await API.get('/api/history/export/csv', { responseType: 'blob' });
     return response.data;
@@ -88,8 +79,4 @@ export const historyAnalyticsApi = {
     return response.data;
   },
 
-  deleteFlashcardHistory: async (flashcardId) => {
-    const response = await API.delete(`/api/history/flashcards/${flashcardId}`);
-    return response.data;
-  },
 };

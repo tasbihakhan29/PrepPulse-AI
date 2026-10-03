@@ -13,7 +13,6 @@ public class AnalyticsOverviewResponse {
     
     private Integer totalTestsTaken;
     private Integer totalEvaluations;
-    private Integer flashcardsGenerated;
     private Double averageScore;
     private Double bestScore;
     private Integer currentStudyStreak;

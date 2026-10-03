@@ -26,7 +26,6 @@ export const dashboardService = {
               totalTests: 0,
               averageScore: 0,
               studyStreak: 0,
-              flashcardsGenerated: 0,
               aiEvaluations: 0,
             },
             performanceTrend: [],
@@ -44,7 +43,6 @@ export const dashboardService = {
             totalTests: 12,
             averageScore: 84.5,
             studyStreak: 5,
-            flashcardsGenerated: 120,
             aiEvaluations: 8,
           },
           performanceTrend: [

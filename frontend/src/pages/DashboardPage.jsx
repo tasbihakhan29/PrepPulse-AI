@@ -22,7 +22,6 @@ import {
   Menu,
   X,
   Flame,
-  Brain,
   CheckCircle2,
   TrendingUp,
   Sparkles,
@@ -127,7 +126,7 @@ const DashboardPage = () => {
             <div className="h-10 w-48 bg-gray-100 rounded-full animate-pulse" />
           </div>
           <div className="p-6 md:p-8 space-y-8 flex-1 overflow-y-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="h-24 bg-white rounded-2xl border border-gray-200/80 p-6 animate-pulse" />
               ))}
@@ -163,12 +162,6 @@ const DashboardPage = () => {
       suffix: ' days',
       icon: Flame,
       color: 'bg-orange-50 text-orange-650 border-orange-100/50',
-    },
-    {
-      title: 'Flashcards Generated',
-      value: dashboardData.stats.flashcardsGenerated,
-      icon: Brain,
-      color: 'bg-blue-50 text-blue-650 border-blue-100/50',
     },
     {
       title: 'AI Evaluations Done',
